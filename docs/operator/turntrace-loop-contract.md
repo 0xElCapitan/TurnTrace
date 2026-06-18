@@ -82,6 +82,37 @@ action **OA-2** (see `04-operator-decisions.md`).
 - App code lives in the **App Zone** (`agents/ sim/ eval/ analysis/ frozen/ runs/ config/`).
 - **State Zone** (`grimoires/`, `.beads/`, `.run/`) is read/write working state.
 
+## 10. Review/Audit Artifact Persistence Rule
+
+`/review-sprint` and `/audit-sprint` are **pure-review skills**. If `Write`/`Edit` is disabled
+inside those skills, that is **expected and correct, not a failure** — it mechanically enforces that
+review and audit never patch implementation files. The review/audit *artifact* is the skill's output;
+it is persisted by the **main loop / orchestrator after the skill returns**, not by the skill itself.
+
+**For `/review-sprint sprint-N`:**
+
+1. Run the pure review skill.
+2. The review skill **must not** patch implementation files.
+3. After the skill returns, persist the review artifact **verbatim** from the main loop/orchestrator to:
+   `grimoires/loa/a2a/sprint-N/engineer-feedback.md`
+4. This persistence is allowed because it writes **only the review artifact** in the git-ignored State Zone.
+5. **Do not** create a `COMPLETED` marker during review.
+
+**For `/audit-sprint sprint-N`:**
+
+1. Run the pure audit skill.
+2. The audit skill **must not** patch implementation files.
+3. After the skill returns, persist the audit artifact **verbatim** from the main loop/orchestrator to:
+   `grimoires/loa/a2a/sprint-N/auditor-sprint-feedback.md`
+4. This persistence is allowed because it writes **only the audit artifact** in the git-ignored State Zone.
+5. **Do not** create a `COMPLETED` marker during audit **unless the operator explicitly authorizes
+   sprint closeout**.
+
+This rule authorizes **only** the orchestrator's post-skill artifact persistence into git-ignored
+State Zone paths (`grimoires/loa/a2a/sprint-N/`). It does **not** authorize review or audit to patch
+implementation files or tracked source/docs by any path. All corrective changes still re-enter through
+`/implement` (the single patch authority, §2).
+
 ---
 
 *This contract is operational, not aspirational. If a build action conflicts with a step here, the
