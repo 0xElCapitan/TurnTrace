@@ -5,7 +5,7 @@
 | **Cycle** | `cycle-000-bootstrap` |
 | **Artifact** | `grimoires/loa/a2a/cycle-000-bootstrap/04-operator-decisions.md` |
 | **Status** | Living record — updated through the planning cycle |
-| **Last updated** | 2026-06-18 (evidence-storage policy patch; sprint-plan stage 2026-06-17) |
+| **Last updated** | 2026-06-18 (loop-contract standing rule SP-7; earlier: evidence-storage patch; sprint-plan stage 2026-06-17) |
 | **Related** | PRD §16 (`01-turntrace-prd.md`); SDD §10 (`02-turntrace-sdd.md`); Sprint Plan (`03-turntrace-sprint-plan.md`) |
 
 > **Purpose.** Single source of truth for operator-level decisions that gate TurnTrace's build. The
@@ -45,6 +45,7 @@ override before the build cycle opens):
 | **SP-4** | **Sprint 00 sized LARGE (10 tasks); Sprint 01 sized MEDIUM (6 tasks)** | Within the skill's 7–10 (LARGE) / 4–6 (MEDIUM) bands; Sprint 00 carries all P0 foundation work | Yes |
 | **SP-5** | **Config format default = JSON** (stdlib, no `pyyaml`) carried forward as the build default | SDD §2.3 soft default; keeps the stdlib-only constraint clean | Yes — sprint/build may revisit |
 | **SP-6** | **Evidence-storage policy — raw generated run artifacts remain local/ignored by default; only sanitized / operator-approved evidence may be tracked in git.** Full `runs/<run_id>/` trees, raw traces, match logs, simulator outputs, deck files, card IDs, card names, `cg/`, starter files, PDFs, CSVs, and raw deck lists are not committed unless explicitly confirmed redistributable. Tracked = sanitized summaries, ledger rows, claim ceilings, failure-mode notes, planning docs, operator-approved artifacts. Reference runs by `run_id`/hashes/sanitized metrics/local path — never embed raw contents. | Extends CC-1/CC-2 to *generated* evidence; a sealed run is an evidence artifact, not automatically a tracked one. Mirrors Sprint Plan §"Evidence-Storage Policy" (ESP-1…ESP-5) | Only by **explicit operator approval** to track a specific, confirmed-redistributable artifact (CC-1/CC-2) |
+| **SP-7** | **The Loa-native loop contract is the standing sprint execution rule.** Every sprint runs `/implement sprint-XX → /review-sprint sprint-XX → /audit-sprint sprint-XX`, with review/audit feedback re-entering only through `/implement` (the sole patch authority), and closes only after implementation + review + audit + operator acceptance. The authoritative contract lives at **`docs/operator/turntrace-loop-contract.md`**. | Makes sprint execution mechanics explicit and standing for all cycles from Cycle-001 onward. **This docs-only note does not open the build gate** (build still requires OA-2). | Standing rule — revisable by the operator |
 
 ---
 
@@ -87,3 +88,4 @@ The build cycle (Sprint 00) opens only when **all** of the following hold:
 |------|-------|--------|
 | 2026-06-17 | Sprint plan | Created. Consolidated OD-1…OD-6 (all closed); confirmed OD-4; recorded sprint-plan decisions SP-1…SP-5; surfaced open operator actions OA-1…OA-4 and the build-gate checklist. |
 | 2026-06-18 | Sprint-plan patch | Added evidence-storage policy as **SP-6** (raw generated run artifacts stay local/ignored by default; only sanitized/operator-approved evidence is tracked). Mirrors new Sprint Plan §"Evidence-Storage Policy" (ESP-1…ESP-5). No PRD/SDD change required — extends CC-1/CC-2. |
+| 2026-06-18 | Standing rule | Recorded the Loa-native loop contract as **SP-7**; authoritative at `docs/operator/turntrace-loop-contract.md`. Docs-only — build gate unchanged (still requires OA-2). |
