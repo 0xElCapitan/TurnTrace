@@ -4,3 +4,7 @@
 .claude/*
 !.claude/overrides/
 !.claude/settings.json
+
+# Local-only context: Competition Data, planning inputs, simulator SDK.
+# Never commit (CC-1/CC-2: Competition Data is non-redistributable; Pokémon Elements).
+grimoires/loa/context/
