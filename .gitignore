@@ -15,3 +15,27 @@ grimoires/loa/context/
 .run/
 grimoires/loa/analytics/
 grimoires/loa/a2a/
+
+# === TurnTrace Competition-Data hygiene (CC-1/CC-2, ESP) — the load-bearing rule ===
+# Competition Data is non-redistributable (Pokémon Elements). Never commit it, even if
+# copied into the app tree. The real data lives under grimoires/loa/context/ (ignored
+# above); these patterns are defense-in-depth against an accidental copy to the repo root.
+cg/
+**/cg/
+**/cg.dll
+**/libcg.so
+deck.csv
+**/deck.csv
+*.pdf
+**/__MACOSX/
+
+# Python bytecode caches (harness is stdlib Python; never track compiled artifacts)
+__pycache__/
+*.py[cod]
+
+# Generated run trees are LOCAL evidence by default (ESP-1): full runs/<run_id>/ trees
+# (match_results/, traces/, manifest.json, hashes.txt, summary.csv, notes.md) stay local
+# and are NEVER committed unless the operator explicitly approves a sanitized subset.
+# Only sanitized summaries / ledger rows / claim ceilings are tracked.
+runs/*/
+!runs/.gitkeep

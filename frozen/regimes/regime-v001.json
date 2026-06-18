@@ -1,0 +1,10 @@
+{
+  "regime_id": "regime-v001",
+  "created_at": "2026-06-18",
+  "seed_set": "seed-set-v001",
+  "opponent_pool": "opponent-pool-v001",
+  "deck_pool": "deck-pool-v001",
+  "metrics_spec": "metrics-spec-v001",
+  "mode": "unseeded",
+  "notes": "First frozen regime — the four-component tuple stamp (plan §5.2). seed_controlled=false (sim/capabilities.json) so the regime is unseeded; reproducibility posture is distribution-stable + audit-trail (NFR-3). A change to ANY component, or a new simulator/env version, requires a NEW file regime-v002 — never an edit of this one (plan §5.3). Never compare results across regimes (NFR-5)."
+}

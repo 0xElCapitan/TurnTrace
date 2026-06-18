@@ -1,0 +1,14 @@
+{
+  "deck_pool_id": "deck-pool-v001",
+  "note": "REFERENCES + CONTENT HASHES ONLY — no card lists, card IDs, or card names (CC-1/CC-2, ESP-3). The card list is Competition Data and lives only in the local, git-ignored deck file. The harness resolves a deck_id to actual cards from that file at runtime; this committed file carries only the hash, so silent deck drift is detectable without redistributing Pokémon Elements.",
+  "decks": [
+    {
+      "deck_id": "deck-starter-v001",
+      "card_count": 60,
+      "deck_hash": "c3d72ecd696951d73dbb99a1b575e2bd185b43b0f2da02f3e25be664bc68d34c",
+      "hash_algo": "sha256",
+      "hash_method": "sha256(canonical_json(list_of_card_ids_in_file_order))",
+      "source_ref": "local, git-ignored: config.deck_file (Competition Data — never committed)"
+    }
+  ]
+}

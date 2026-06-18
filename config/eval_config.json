@@ -1,0 +1,15 @@
+{
+  "_comment": "TurnTrace eval-harness config. Paths default to the local, git-ignored Competition-Data location (CC-1/CC-2) and are env-overridable. This file contains NO Competition Data (no card IDs/names/deck lists) — only path strings, an assumed time-budget posture, and version provenance.",
+  "cg_dir": "grimoires/loa/context/Planning/sample_submission",
+  "deck_file": "grimoires/loa/context/Planning/sample_submission/deck.csv",
+  "runs_dir": "runs",
+  "decision_budget_ms": null,
+  "budget_source": "assumed",
+  "sim_version": "cabt (kaggle-environments 1.14.10)",
+  "sim_version_source": "installed-pin",
+  "env_overrides": {
+    "cg_dir": "TURNTRACE_CG_DIR",
+    "deck_file": "TURNTRACE_DECK_FILE",
+    "runs_dir": "TURNTRACE_RUNS_DIR"
+  }
+}

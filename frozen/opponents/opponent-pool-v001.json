@@ -1,0 +1,14 @@
+{
+  "opponent_pool_id": "opponent-pool-v001",
+  "opponents": [
+    {
+      "opponent_id": "random_legal",
+      "kind": "random-legal",
+      "agent_ref": "agents/runtime/random_legal.py",
+      "agent_version": "random_legal-v001",
+      "deck_ref": "deck-starter-v001",
+      "category": "vs-random",
+      "notes": "Sprint 00 ships only random_legal, so the single opponent is a second random_legal instance (a mirror). Win rate against this opponent is NOT a strength signal (ladder Rung 1); it exists only to make the loop produce evidence. The scripted heuristic baseline (PR-13) arrives in Sprint 01."
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "budget": {
+    "budget_source": "assumed",
+    "decision_budget_ms": null
+  },
+  "cg_dir": "grimoires/loa/context/Planning/sample_submission",
+  "deck_file": "grimoires/loa/context/Planning/sample_submission/deck.csv",
+  "errors": [],
+  "flags": {
+    "invalid_action_detectable": true,
+    "legal_actions_observed": true,
+    "local_match_runnable": "confirmed",
+    "own_hidden_state_observable": true,
+    "seed_controlled": false,
+    "timeout_detectable": false
+  },
+  "measured": {
+    "avg_decisions_per_match": 56.333333333333336,
+    "example_match": {
+      "decisions": 29,
+      "reason": 3,
+      "result": 0
+    },
+    "match_throughput_per_hour": 332045.73395937594,
+    "match_throughput_per_sec": 92.23492609982665,
+    "throughput_completed": 5,
+    "throughput_matches": 5
+  },
+  "platform": "win32",
+  "probed_at": "2026-06-18T08:36:31.415018+00:00",
+  "python": "3.14.0",
+  "schema": "turntrace/sim-capabilities/v1",
+  "sim_version": "cabt (kaggle-environments 1.14.10)",
+  "sim_version_source": "installed-pin"
+}

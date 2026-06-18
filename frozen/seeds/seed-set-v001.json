@@ -1,0 +1,9 @@
+{
+  "seed_set_id": "seed-set-v001",
+  "mode": "unseeded",
+  "rationale": "The capability probe found no controllable RNG seed (sim/capabilities.json: seed_controlled=false; cg.game.battle_start accepts no seed). Per NFR-3 / plan §5.6, the regime is therefore a fixed, ordered list of MATCH INDICES, not seeds. Reproducibility degrades honestly from byte-identical replay to distribution-stable + audit-trail; the determinism smoke is skipped and notes.md records mode=unseeded.",
+  "match_indices": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "seeds": null,
+  "n": 12,
+  "n_note": "N=12 is a modest Sprint-00 set: the loop's correctness does not depend on N, only its statistical power (plan §7.6). Probe throughput (~80-190 matches/s) leaves ample headroom to raise N in a future regime-v002 without touching the loop."
+}

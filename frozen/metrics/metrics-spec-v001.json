@@ -1,0 +1,33 @@
+{
+  "metrics_spec_id": "metrics-spec-v001",
+  "composite_verdict": "worst-case",
+  "composite_note": "If any category is fail, the run is fail (SDD §5.4). A gate is only as hard as its underlying capability.",
+  "categories": {
+    "vs-random": {
+      "metrics": ["win_rate", "illegal_action_rate", "timeout_rate", "avg_match_length", "error_rate"],
+      "gates": {
+        "illegal_action_rate": {
+          "type": "hard",
+          "capability": "invalid_action_detectable",
+          "pass_max": 0.0,
+          "note": "invalid_action_detectable=true → hard gate; any nonzero detectable illegal-action rate is a correctness bug, not a strategy result."
+        },
+        "timeout_rate": {
+          "type": "soft",
+          "capability": "timeout_detectable",
+          "note": "No per-move budget is published (timeout undetectable) → soft warning only. An undetectable rate is never a pass."
+        },
+        "error_rate": {
+          "type": "hard",
+          "pass_max": 0.0,
+          "note": "Crashes / forfeits / non-terminating matches."
+        },
+        "win_rate": {
+          "type": "informational",
+          "note": "Sprint 00 makes NO strength claim; win_rate is reported, never gated (ladder Rung 1)."
+        }
+      }
+    }
+  },
+  "note": "Minimal Sprint 00 spec (SDD §5.4). Gates check correctness (legality / completion), not strength. There is no strength gate in Sprint 00; the ledger's claim_ceiling bounds interpretation instead."
+}
