@@ -1,0 +1,6 @@
+.claude/.skills-disabled/
+
+# LOA framework is gitignored; only track user customizations
+.claude/*
+!.claude/overrides/
+!.claude/settings.json
