@@ -8,3 +8,10 @@
 # Local-only context: Competition Data, planning inputs, simulator SDK.
 # Never commit (CC-1/CC-2: Competition Data is non-redistributable; Pokémon Elements).
 grimoires/loa/context/
+
+# Loa framework working state — runtime, analytics, and agent-to-agent
+# artifacts/trajectory. Durable planning artifacts are promoted to docs/cycles/;
+# these working copies stay local.
+.run/
+grimoires/loa/analytics/
+grimoires/loa/a2a/
