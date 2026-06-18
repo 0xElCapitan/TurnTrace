@@ -98,6 +98,13 @@ def _seed_controlled(summaries: "list[dict]") -> bool:
 def byte_identical(run_dir: Path, replay_run: Path) -> dict:
     """Determinism path: assert each match's trace bytes are identical between
     the two runs (only meaningful under seed control)."""
+    # loa:shortcut: DEAD PATH — unreachable while seed_controlled=false. replay_check()
+    # short-circuits to determinism status "skipped" before ever calling this under the
+    # probed reality (sim/capabilities.json seed_controlled=false), even when --replay-run
+    # is supplied. Upgrade trigger: reachable ONLY once seed control is PROVEN
+    # (sim/capabilities.json seed_controlled=true) AND a second run dir is passed via
+    # --replay-run. No fake seed is ever injected to reach it (NG2 reproducibility
+    # boundary); a flip to seed_controlled=true is a new regime, never a test fixture.
     a_ids = {p.stem for p in (run_dir / "traces").glob("*.jsonl")}
     b_ids = {p.stem for p in (replay_run / "traces").glob("*.jsonl")}
     common = sorted(a_ids & b_ids)

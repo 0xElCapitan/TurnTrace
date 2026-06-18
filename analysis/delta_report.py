@@ -18,6 +18,20 @@ operator's, not this script's (PRD §11.4).
 `sim/`, `agents/runtime/`, or `eval/` (the offline/runtime separation; SDD §1.6).
 stdlib only (NFR-7).
 
+**Metric alias (avg_match_length ↔ avg_turns).** The metrics-spec lists
+``avg_match_length`` (``frozen/metrics/metrics-spec-v001.json``); this report
+compares the aggregate's ``avg_turns``, which is the same quantity under a
+different name. The alias is documented here rather than edited into ``frozen/``
+— a frozen-component change is a new regime, never an in-place edit
+(``docs/claim-ceiling.md``).
+
+**Change kinds.** Each metric is classified ``unchanged`` / ``moved`` (both
+sides numeric, delta ≠ 0) / ``appeared`` (baseline n/a → candidate numeric) /
+``disappeared`` (baseline numeric → candidate n/a). A direction (up/down) is
+asserted **only** when both sides are numeric — a ``None↔number`` transition is
+never rendered as a fabricated ``down``. Every moved/appeared/disappeared metric
+carries a why-line, symmetric with the why-no-change line on unmoved metrics.
+
 CLI:  python analysis/delta_report.py runs/run-0001 runs/run-0002
 Exit: 0 comparison produced · 1 env/input failure · 2 cross-regime refusal.
 """
@@ -78,6 +92,39 @@ def _delta(a, b):
     return None
 
 
+def _is_num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _change_kind(va, vb, d) -> str:
+    """Classify a metric transition. ``d`` is the numeric delta (non-None iff both
+    sides are numeric). A ``None↔number`` transition is ``appeared``/``disappeared``,
+    never a fabricated move — so no false direction can be rendered (CF-03 fix)."""
+    if d is not None:  # both sides numeric
+        return "moved" if d != 0 else "unchanged"
+    a_num, b_num = _is_num(va), _is_num(vb)
+    if b_num and not a_num:
+        return "appeared"
+    if a_num and not b_num:
+        return "disappeared"
+    return "unchanged" if va == vb else "moved"  # both non-numeric (e.g. None==None)
+
+
+def _why_moved(metric: str, kind: str, va, vb) -> str:
+    """Why-moved line, symmetric with WHY_NO_CHANGE; bounded by the Rung-1 ceiling."""
+    if kind == "appeared":
+        return (f"{metric} was not computable in the baseline (n/a) and is numeric in "
+                f"the candidate ({_fmt(vb)}); recorded as APPEARED — no direction is "
+                f"asserted (a None↔number transition is not a movement; Rung 1).")
+    if kind == "disappeared":
+        return (f"{metric} was numeric in the baseline ({_fmt(va)}) and is not computable "
+                f"in the candidate (n/a); recorded as DISAPPEARED — no direction is "
+                f"asserted (a number↔None transition is not a movement; Rung 1).")
+    return (f"{metric} moved by the recorded delta as the mechanical consequence of the "
+            f"single agent-under-test change at this n — a same-regime, agent-only delta "
+            f"bounded by the ledger claim ceiling; NOT a strength claim (Rung 1).")
+
+
 class CrossRegimeRefusal(Exception):
     pass
 
@@ -106,11 +153,14 @@ def compare(run_a: Path, run_b: Path) -> dict:
     for m in COMPARE_METRICS:
         va, vb = stats_a.get(m), stats_b.get(m)
         d = _delta(va, vb)
-        moved = (d is not None and d != 0) or (va != vb and d is None)
+        kind = _change_kind(va, vb, d)
+        moved = kind != "unchanged"
         metrics.append({
-            "metric": m, "a": va, "b": vb, "delta": d, "moved": moved,
+            "metric": m, "a": va, "b": vb, "delta": d,
+            "change_kind": kind, "moved": moved,
             "why_no_change": None if moved else WHY_NO_CHANGE.get(
                 m, "no change between the two runs at this n."),
+            "why_moved": _why_moved(m, kind, va, vb) if moved else None,
         })
 
     return {
@@ -137,8 +187,10 @@ def render(rep: dict) -> str:
     lines.append("")
     lines.append(f"| metric | {a['run_id']} | {b['run_id']} | delta (cand-base) | status |")
     lines.append("|---|---|---|---|---|")
+    status_label = {"unchanged": "no change", "moved": "MOVED",
+                    "appeared": "APPEARED", "disappeared": "DISAPPEARED"}
     for m in rep["metrics"]:
-        status = "MOVED" if m["moved"] else "no change"
+        status = status_label[m["change_kind"]]
         dtxt = _fmt(m["delta"]) if m["delta"] is not None else "n/a"
         lines.append(f"| {m['metric']} | {_fmt(m['a'])} | {_fmt(m['b'])} | {dtxt} | {status} |")
     lines.append("")
@@ -153,11 +205,20 @@ def render(rep: dict) -> str:
     if moved:
         lines.append("## Moved metrics (recorded, NOT a strength claim)")
         for m in moved:
-            direction = "up" if (m["delta"] or 0) > 0 else "down"
-            lines.append(f"- **{m['metric']}**: {_fmt(m['a'])} -> {_fmt(m['b'])} "
-                         f"({direction} {_fmt(m['delta'])}). Recorded as a same-regime, "
-                         f"agent-only delta at n={b['n']}; interpretation is bounded by "
-                         f"the ledger claim ceiling.")
+            kind = m["change_kind"]
+            if kind == "appeared":
+                lines.append(f"- **{m['metric']}**: n/a -> {_fmt(m['b'])} (APPEARED). "
+                             f"{m['why_moved']}")
+            elif kind == "disappeared":
+                lines.append(f"- **{m['metric']}**: {_fmt(m['a'])} -> n/a (DISAPPEARED). "
+                             f"{m['why_moved']}")
+            else:  # moved — direction computed ONLY when the delta is numeric (no footgun)
+                if _is_num(m["delta"]):
+                    change = f"{'up' if m['delta'] > 0 else 'down'} {_fmt(m['delta'])}"
+                else:
+                    change = "changed"  # non-numeric move: no direction asserted
+                lines.append(f"- **{m['metric']}**: {_fmt(m['a'])} -> {_fmt(m['b'])} "
+                             f"({change}). {m['why_moved']}")
         lines.append("")
     wc = rep["wall_clock_ms"]
     lines.append(f"_throughput (environment-sensitive, not a comparison metric): "

@@ -23,17 +23,21 @@ Sprint 01 additions:
     SHA-256 hashes of the runtime agent source(s) + the eval config — so a
     same-regime, agent-only comparison's provenance holds even with
     ``git_dirty=true`` (source-hash path; closeout O1 Option B).
-  * **O2 (ledger footgun, Sprint 01 entry gate):** ``--no-ledger`` skips the
-    ``docs/ledger.md`` append entirely (still writes ``summary.csv``). Review /
-    test / non-deliverable runs MUST pass ``--no-ledger`` (or ``--ledger <tmp>``)
-    so a stray run cannot contaminate the tracked ledger (closeout O2).
+  * **O2 / CF-01 (ledger footgun → fail-safe, PR-4 Option C):** writing a row to
+    the tracked ``docs/ledger.md`` now requires **explicit deliverable intent** —
+    a bare invocation writes **no** ledger row (it still writes ``summary.csv``).
+    Declare a deliverable run with ``--deliverable`` (writes ``docs/ledger.md``) or
+    redirect with ``--ledger <path>``. ``--no-ledger`` is **deprecated** (no-write
+    is now the default) and is retained as a fail-safe that still suppresses any
+    ledger write.
 
 Exit codes: 0 ok · 1 env/input-load failure · 2 agent-init failure ·
 3 immutability-guard refusal (populated dir). stdlib only (NFR-7).
 
-CLI:  python eval/run_eval.py            # → runs/run-0001 (random_legal, deliverable)
-      python eval/run_eval.py --run-id run-0002 --agent scripted_baseline
-      python eval/run_eval.py --run-id run-x --no-ledger   # non-deliverable, no ledger row
+CLI:  python eval/run_eval.py                          # non-deliverable: summary.csv, NO ledger row
+      python eval/run_eval.py --deliverable             # → runs/run-0001, appends docs/ledger.md
+      python eval/run_eval.py --run-id run-0002 --agent scripted_baseline --deliverable
+      python eval/run_eval.py --run-id run-x --ledger /tmp/ledger.md   # write to a redirected (tmp) ledger
 """
 
 from __future__ import annotations
@@ -90,15 +94,18 @@ def _is_populated(run_dir: Path) -> bool:
 
 def run_eval(run_id: str, out_dir: Path, regime_id: str = "regime-v001",
              ledger_path: "Path | None" = None, agent_id: str = "random_legal",
-             write_ledger: bool = True, ledger_notes: "str | None" = None) -> dict:
+             write_ledger: bool = False, ledger_notes: "str | None" = None) -> dict:
     """Returns a result dict. Raises SystemExit-like ints via RunEvalError-style
-    exceptions mapped by main(). ``ledger_path`` defaults to docs/ledger.md;
-    tests redirect it so they never touch the real ledger.
+    exceptions mapped by main(). ``ledger_path`` defaults to docs/ledger.md but is
+    consulted ONLY when ``write_ledger`` is True; tests redirect it so they never
+    touch the tracked ledger.
 
     ``agent_id`` selects the agent-under-test (player 0); the opponent stays the
-    regime's frozen opponent. ``write_ledger=False`` (O2) skips the ledger append
-    for non-deliverable runs. ``ledger_notes`` overrides the default ledger note
-    (run-0002 uses it to record the same-regime, agent-only comparison framing)."""
+    regime's frozen opponent. **``write_ledger`` defaults to ``False`` (PR-4 /
+    CF-01, Option C):** a row is appended to ``ledger_path`` ONLY when a caller
+    declares deliverable intent (``write_ledger=True``); ``summary.csv`` is always
+    written either way. ``ledger_notes`` overrides the default ledger note (the
+    deliverable run-0002 uses it to record the same-regime, agent-only framing)."""
     cfg = load_config()
     ledger_path = ledger_path if ledger_path is not None else (REPO_ROOT / "docs" / "ledger.md")
     if agent_id not in AGENTS:
@@ -304,21 +311,33 @@ def main(argv=None) -> int:
     ap.add_argument("--regime-id", default="regime-v001")
     ap.add_argument("--agent", default="random_legal",
                     help="agent-under-test (player 0); e.g. scripted_baseline for run-0002")
-    ap.add_argument("--ledger", default=None, help="ledger path (default: docs/ledger.md)")
+    ap.add_argument("--ledger", default=None,
+                    help="write the ledger row to this path (implies deliverable intent)")
+    ap.add_argument("--deliverable", action="store_true",
+                    help="declare a DELIVERABLE run → append one row to docs/ledger.md "
+                         "(default ledger path). Omit for non-deliverable runs (no ledger write).")
     ap.add_argument("--no-ledger", action="store_true",
-                    help="O2: do NOT append a ledger row (required for non-deliverable runs)")
+                    help="DEPRECATED (PR-4 Option C): not writing a ledger is now the DEFAULT. "
+                         "Retained as a fail-safe — when present it still suppresses any ledger write.")
     ap.add_argument("--ledger-note", default=None,
                     help="override the ledger row's notes (e.g. the comparison framing)")
     args = ap.parse_args(argv)
 
+    if args.no_ledger:
+        print("run_eval: note — --no-ledger is deprecated; not writing a ledger is now the "
+              "default (PR-4 Option C). It still suppresses any ledger write.", file=sys.stderr)
+
     cfg = load_config()
     runs_dir = REPO_ROOT / cfg.get("runs_dir", "runs")
     out_dir = Path(args.out_dir) if args.out_dir else (runs_dir / args.run_id)
-    ledger_path = Path(args.ledger) if args.ledger else None
+    # Option C: a ledger row is written ONLY on explicit deliverable intent
+    # (--deliverable or --ledger <path>); --no-ledger remains a fail-safe suppressor.
+    write_ledger = bool(args.deliverable or args.ledger) and not args.no_ledger
+    ledger_path = Path(args.ledger) if args.ledger else None  # None → run_eval uses docs/ledger.md
 
     try:
         res = run_eval(args.run_id, out_dir, regime_id=args.regime_id, ledger_path=ledger_path,
-                       agent_id=args.agent, write_ledger=not args.no_ledger,
+                       agent_id=args.agent, write_ledger=write_ledger,
                        ledger_notes=args.ledger_note)
     except ImmutabilityRefusal as e:
         print(f"run_eval: REFUSED — {e}", file=sys.stderr)

@@ -35,8 +35,12 @@ import canonical_json  # noqa: E402  (eval/, parity check)
 import delta_report  # noqa: E402  (analysis/, Sprint 01 PR-14)
 import replay_check  # noqa: E402  (analysis/, Sprint 01 PR-15)
 import scripted_baseline  # noqa: E402  (agents/runtime, Sprint 01 PR-13)
+import failure_report  # noqa: E402  (analysis/, Sprint 02 PR-2)
 from adapter import SimAdapter  # noqa: E402
 from _env import load_config, read_deck, resolve_deck_file  # noqa: E402
+
+sys.path.insert(0, str(REPO_ROOT / "tests"))
+import test_import_direction  # noqa: E402  (Sprint 02 PR-2 lint-coverage assertion)
 
 
 class SingleMatchSmoke(unittest.TestCase):
@@ -107,7 +111,10 @@ class RunEvalSmoke(unittest.TestCase):
         cls.tmp = Path(tempfile.mkdtemp(prefix="tt-eval-"))
         cls.run_dir = cls.tmp / "run-test"
         cls.ledger = cls.tmp / "ledger.md"
-        cls.res = run_eval.run_eval("run-test", cls.run_dir, ledger_path=cls.ledger)
+        # PR-4 caller audit: write_ledger now defaults False, so a deliverable test
+        # that asserts a ledger row MUST declare intent explicitly (to a tmp ledger).
+        cls.res = run_eval.run_eval("run-test", cls.run_dir, ledger_path=cls.ledger,
+                                    write_ledger=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -247,21 +254,26 @@ class ScriptedBaselineSmoke(unittest.TestCase):
 
 
 class NoLedgerGuardSmoke(unittest.TestCase):
-    """O2: a non-deliverable run (write_ledger=False / --no-ledger) writes NO ledger."""
+    """O2 / PR-4 Option C: a non-deliverable run writes NO ledger. With the new
+    fail-safe default (write_ledger=False) a bare run never appends; --no-ledger
+    remains a deprecated, still-suppressing fail-safe."""
 
     def test_no_ledger_written(self):
         tmp = Path(tempfile.mkdtemp(prefix="tt-noledger-"))
         try:
             ledger = tmp / "ledger.md"
+            # rely on the NEW DEFAULT (write_ledger omitted → False): no ledger write.
             res = run_eval.run_eval("run-noledger", tmp / "run-noledger",
-                                    write_ledger=False, ledger_path=ledger)
-            self.assertFalse(ledger.exists(), "no ledger file should be created")
+                                    ledger_path=ledger)
+            self.assertFalse(ledger.exists(), "no ledger file should be created by default")
             self.assertFalse(res["ledger_appended"])
             self.assertTrue((tmp / "run-noledger" / "summary.csv").exists())
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
     def test_cli_no_ledger_flag(self):
+        # deprecated --no-ledger still SUPPRESSES even alongside an explicit --ledger
+        # (fail-safe: the contamination flag can only ever prevent a write).
         tmp = Path(tempfile.mkdtemp(prefix="tt-noledger-cli-"))
         try:
             ledger = tmp / "ledger.md"
@@ -269,6 +281,59 @@ class NoLedgerGuardSmoke(unittest.TestCase):
                                 "--no-ledger", "--ledger", str(ledger)])
             self.assertEqual(rc, 0)
             self.assertFalse(ledger.exists())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class DeliverableLedgerSmoke(unittest.TestCase):
+    """PR-4 / AC-4: an EXPLICIT deliverable run writes exactly one ledger row,
+    idempotently, to a redirected (tmp) path — never the tracked docs/ledger.md."""
+
+    def test_deliverable_writes_one_row_idempotent(self):
+        import aggregate  # noqa: E402  (analysis/, intra-zone)
+        tmp = Path(tempfile.mkdtemp(prefix="tt-deliv-"))
+        try:
+            ledger = tmp / "ledger.md"
+            rd = tmp / "run-deliv"
+            res = run_eval.run_eval("run-deliv", rd, write_ledger=True, ledger_path=ledger)
+            self.assertTrue(res["ledger_appended"])
+            self.assertTrue(ledger.exists())
+            text = ledger.read_text()
+            rows = [l for l in text.splitlines()
+                    if l.startswith("| run-deliv ") or " | run-deliv | " in l]
+            self.assertEqual(len(rows), 1, "exactly one deliverable row")
+            self.assertIn("Rung 1", text)  # claim ceiling present & non-empty
+            # idempotent: re-aggregating the same run into the same ledger adds no row
+            again = aggregate.aggregate_and_ledger(
+                rd, ledger, git_rev="x", sim_version="s", mode="unseeded",
+                opponent_pool_ref="opponent-pool-v001", seed_set_ref="seed-set-v001",
+                date="2026-06-18")
+            self.assertFalse(again["ledger_appended"])
+            self.assertEqual(ledger.read_text(), text)  # byte-identical: no second row
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_cli_ledger_path_implies_deliverable(self):
+        # --ledger <tmp> alone implies deliverable intent → writes the redirected ledger.
+        tmp = Path(tempfile.mkdtemp(prefix="tt-deliv-cli-"))
+        try:
+            ledger = tmp / "ledger.md"
+            rc = run_eval.main(["--run-id", "run-dcli", "--out-dir", str(tmp / "run-dcli"),
+                                "--ledger", str(ledger)])
+            self.assertEqual(rc, 0)
+            self.assertTrue(ledger.exists())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_cli_deliverable_flag_with_redirected_ledger(self):
+        # --deliverable declares intent; --ledger keeps the write off the tracked ledger.
+        tmp = Path(tempfile.mkdtemp(prefix="tt-deliv-flag-"))
+        try:
+            ledger = tmp / "ledger.md"
+            rc = run_eval.main(["--run-id", "run-df", "--out-dir", str(tmp / "run-df"),
+                                "--deliverable", "--ledger", str(ledger)])
+            self.assertEqual(rc, 0)
+            self.assertTrue(ledger.exists())
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -321,6 +386,15 @@ class DeltaReportSmoke(unittest.TestCase):
         man = json.loads((cls.xreg / "manifest.json").read_text())
         man["regime_id"] = "regime-v999"
         (cls.xreg / "manifest.json").write_text(json.dumps(man, indent=2))
+        # None-producing copy: force illegal_action_rate -> None (no detectable records),
+        # so base<->none exercises the appeared/disappeared (None<->number) branches.
+        cls.noneb = cls.tmp / "run-a-none"
+        shutil.copytree(cls.base, cls.noneb)
+        for p in (cls.noneb / "match_results").glob("*.json"):
+            r = json.loads(p.read_text(encoding="utf-8"))
+            r["invalid_action_detectable"] = False
+            r["invalid_action_count"] = None
+            p.write_text(json.dumps(r), encoding="utf-8")
 
     @classmethod
     def tearDownClass(cls):
@@ -337,6 +411,52 @@ class DeltaReportSmoke(unittest.TestCase):
         with self.assertRaises(delta_report.CrossRegimeRefusal):
             delta_report.compare(self.base, self.xreg)
         self.assertEqual(delta_report.main([str(self.base), str(self.xreg)]), 2)  # AC-02
+
+    def test_change_kind_classifier(self):  # PR-3: None<->number is never a fabricated move
+        self.assertEqual(delta_report._change_kind(None, 0.5, None), "appeared")
+        self.assertEqual(delta_report._change_kind(0.5, None, None), "disappeared")
+        self.assertEqual(delta_report._change_kind(0.1, 0.3, 0.2), "moved")
+        self.assertEqual(delta_report._change_kind(0.2, 0.2, 0.0), "unchanged")
+        self.assertEqual(delta_report._change_kind(None, None, None), "unchanged")
+
+    def test_appeared_not_fabricated_down(self):
+        # baseline n/a, candidate numeric → APPEARED, never the old fabricated 'down'
+        rep = delta_report.compare(self.noneb, self.base)
+        iar = next(m for m in rep["metrics"] if m["metric"] == "illegal_action_rate")
+        self.assertEqual(iar["change_kind"], "appeared")
+        self.assertIsNone(iar["delta"])
+        self.assertTrue(iar["why_moved"])
+        out = delta_report.render(rep)
+        line = next(l for l in out.splitlines()
+                    if l.startswith("- **illegal_action_rate**") and "APPEARED" in l)
+        self.assertNotIn("down", line)
+        self.assertNotIn("up ", line)
+
+    def test_disappeared_renders_na(self):
+        # baseline numeric, candidate n/a → DISAPPEARED, "<a> -> n/a", no direction
+        rep = delta_report.compare(self.base, self.noneb)
+        iar = next(m for m in rep["metrics"] if m["metric"] == "illegal_action_rate")
+        self.assertEqual(iar["change_kind"], "disappeared")
+        out = delta_report.render(rep)
+        line = next(l for l in out.splitlines()
+                    if l.startswith("- **illegal_action_rate**") and "DISAPPEARED" in l)
+        self.assertIn("-> n/a", line)
+        self.assertNotIn("down", line)
+
+    def test_moved_metric_has_why_line(self):  # symmetric with why-no-change; numeric delta preserved
+        rep = {
+            "regime_id": "regime-v001",
+            "run_a": {"run_id": "x", "agent_version": "v", "opponent_id": "o", "n": 12},
+            "run_b": {"run_id": "y", "agent_version": "v", "opponent_id": "o", "n": 12},
+            "metrics": [{"metric": "win_rate", "a": 0.4, "b": 0.6, "delta": 0.2,
+                         "change_kind": "moved", "moved": True, "why_no_change": None,
+                         "why_moved": delta_report._why_moved("win_rate", "moved", 0.4, 0.6)}],
+            "wall_clock_ms": {"a": 1, "b": 2},
+        }
+        out = delta_report.render(rep)
+        self.assertIn("| win_rate | 0.4 | 0.6 | 0.2 | MOVED |", out)  # delta-table value preserved
+        self.assertIn("up 0.2", out)
+        self.assertTrue(any("win_rate" in l and "Rung 1" in l for l in out.splitlines()))
 
 
 class ReplayCheckSmoke(unittest.TestCase):
@@ -361,6 +481,24 @@ class ReplayCheckSmoke(unittest.TestCase):
         rep = replay_check.replay_check(self.rd)
         self.assertEqual(rep["mode"], "unseeded")
         self.assertEqual(rep["determinism"]["status"], "skipped")
+        self.assertNotEqual(rep["determinism"]["status"], "passed")  # PR-5: never 'passed'
+        self.assertFalse(rep["seed_controlled"])  # probed reality: seed_controlled=false
+
+    def test_byte_identical_copy_still_skipped_not_passed(self):
+        # PR-5 dead-path guard: a byte-identical COPY as --replay-run WOULD make
+        # byte_identical() pass — but unseeded short-circuits to 'skipped' before reaching
+        # it, so the skip branch can NOT silently become 'passed'. No seed is fabricated;
+        # seed_controlled stays false (NG2 reproducibility boundary).
+        copy = self.tmp / "run-r-copy"
+        shutil.copytree(self.rd, copy)
+        rep = replay_check.replay_check(self.rd, replay_run=copy)
+        self.assertFalse(rep["seed_controlled"])
+        self.assertEqual(rep["determinism"]["status"], "skipped")
+        self.assertNotEqual(rep["determinism"]["status"], "passed")
+
+    def test_seed_controlled_still_false(self):
+        # Confirm the gate that keeps the dead path dead: records report seed_controlled=false.
+        self.assertFalse(replay_check._seed_controlled(replay_check._load_summaries(self.rd)))
 
     def test_canonical_parity_with_eval(self):
         for s in ({"b": 2, "a": 1}, [1, {"z": 9, "y": [3, 2, 1]}], {"n": None, "t": True}):
@@ -387,6 +525,103 @@ class MirrorValidateSmoke(unittest.TestCase):
 
     def test_unknown_agent_setup_fails(self):
         self.assertEqual(mirror_validate.main(["--agent", "does_not_exist"]), 2)
+
+
+# ====================== Sprint 02 smokes ======================
+# All throwaway runs below build into tempdirs (write_ledger=False) — they NEVER
+# touch runs/run-000{1,2} or docs/ledger.md.
+
+
+class FailureReportSmoke(unittest.TestCase):
+    """PR-2 / AC-2: aggregate report emits COUNTS ONLY and never reads the
+    per-decision sidecars (poisoned-sidecar contents must be ignored)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tt-failrep-"))
+        cls.rd = cls.tmp / "run-fr"
+        run_eval.run_eval("run-fr", cls.rd, write_ledger=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_counts_sum_to_n(self):
+        rep = failure_report.aggregate_failures(self.rd)
+        n = rep["n"]
+        self.assertGreater(n, 0)
+        self.assertEqual(sum(rep["result_counts"].values()), n)        # nothing dropped
+        self.assertEqual(sum(rep["ending_cause_counts"].values()), n)  # incl. <unmapped>
+        self.assertGreaterEqual(rep["invalid_action_total"], 0)
+        self.assertIsInstance(rep["error_present_count"], int)
+
+    def test_no_sidecar_reference_in_source(self):
+        # static guarantee: the module contains no reference to the trace sidecar
+        # directory, so it CANNOT read raw decision rows.
+        src = Path(failure_report.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("traces", src)
+
+    def test_poisoned_sidecar_ignored(self):
+        poisoned = self.tmp / "run-poison"
+        shutil.copytree(self.rd, poisoned)
+        poison = "NOT_A_REAL_CARD DROP-TABLE deck.csv CARD_ID_0xDEADBEEF hand=[A,B,C]"
+        sidecar_dir = poisoned / "traces"
+        sidecar_dir.mkdir(exist_ok=True)
+        (sidecar_dir / "ZZZZ.jsonl").write_text(poison + "\n", encoding="utf-8")
+        for jf in sidecar_dir.glob("*.jsonl"):
+            jf.write_text(poison + "\n", encoding="utf-8")
+        # match_results + manifest are identical to the clean run → counts identical,
+        # which proves the sidecars were never consulted.
+        clean = failure_report.aggregate_failures(self.rd)
+        pois = failure_report.aggregate_failures(poisoned)
+        self.assertEqual(pois["result_counts"], clean["result_counts"])
+        self.assertEqual(pois["ending_cause_counts"], clean["ending_cause_counts"])
+        out = failure_report.render(pois) + "\n" + failure_report.render_json(pois)
+        for tok in ("NOT_A_REAL_CARD", "DROP-TABLE", "deck.csv", "0xDEADBEEF", "hand="):
+            self.assertNotIn(tok, out)
+
+    def test_unmapped_bucket_and_invalid_exclusion(self):
+        tampered = self.tmp / "run-tamper"
+        shutil.copytree(self.rd, tampered)
+        recs = sorted((tampered / "match_results").glob("*.json"))
+        self.assertGreaterEqual(len(recs), 2)
+        r0 = json.loads(recs[0].read_text(encoding="utf-8"))
+        r0["ending_cause"] = None              # null → <unmapped>, reported not dropped
+        r0["invalid_action_detectable"] = False  # → excluded from invalid_action_total
+        recs[0].write_text(json.dumps(r0), encoding="utf-8")
+        r1 = json.loads(recs[1].read_text(encoding="utf-8"))
+        r1["ending_cause"] = "totally-new-cause"  # unrecognized → <unmapped>
+        recs[1].write_text(json.dumps(r1), encoding="utf-8")
+        rep = failure_report.aggregate_failures(tampered)
+        self.assertGreaterEqual(rep["ending_cause_counts"]["<unmapped>"], 2)
+        self.assertGreaterEqual(rep["invalid_action_excluded"], 1)
+        self.assertEqual(sum(rep["ending_cause_counts"].values()), rep["n"])
+
+    def test_empty_run_raises(self):
+        empty = self.tmp / "run-empty"
+        (empty / "match_results").mkdir(parents=True)
+        with self.assertRaises(ValueError):
+            failure_report.aggregate_failures(empty)
+
+    def test_cli_exit_codes_and_out(self):
+        self.assertEqual(failure_report.main([str(self.rd)]), 0)            # stdout default
+        self.assertEqual(failure_report.main([str(self.rd), "--json"]), 0)  # json
+        self.assertEqual(failure_report.main([str(self.tmp / "no-such-run")]), 1)  # input fail
+        out = self.tmp / "fr-out.md"
+        self.assertEqual(failure_report.main([str(self.rd), "--out", str(out)]), 0)
+        self.assertTrue(out.exists())
+
+
+class FailureReportImportCoverage(unittest.TestCase):
+    """PR-2 / SDD §2 gap-closure: the new analysis module is in the import-direction
+    lint's scanned set and reports zero violations — a new analysis module cannot
+    silently escape the runtime/offline separation rule."""
+
+    def test_module_scanned_and_clean(self):
+        zone_map = test_import_direction._module_zone_map()
+        self.assertEqual(zone_map.get("failure_report"), "analysis")
+        offending = [v for v in test_import_direction.check() if "failure_report" in v]
+        self.assertEqual(offending, [], f"failure_report import violations: {offending}")
 
 
 if __name__ == "__main__":

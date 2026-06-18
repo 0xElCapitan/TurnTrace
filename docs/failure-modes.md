@@ -8,6 +8,8 @@
 >
 > No Competition Data here — reference trace rows by `run_id`+`match_id`+`decision_index`.
 
+> See the machine-aligned, status-bearing taxonomy: `docs/failure-mode-taxonomy-v001.md`.
+
 ## Entry template
 
 ```
