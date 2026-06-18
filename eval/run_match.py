@@ -34,6 +34,7 @@ for _sub in ("sim", "agents/runtime", "eval"):
 
 from adapter import SimAdapter  # noqa: E402  (sim/ — allowed: eval may import sim)
 import random_legal as random_legal_agent  # noqa: E402  (agents/runtime — allowed)
+import scripted_baseline as scripted_baseline_agent  # noqa: E402  (agents/runtime — allowed)
 from canonical_json import canonical_dumps, hash_canonical, sha256_hex  # noqa: E402
 from _env import load_config, read_deck, resolve_deck_file  # noqa: E402 (sim/_env)
 
@@ -46,8 +47,13 @@ REQUIRED_INPUTS = (
     "opponent_id", "agent_version",
 )
 
-# Agent registry — Sprint 00 ships only random_legal (both sides; mirror).
-AGENTS = {"random_legal": random_legal_agent}
+# Agent registry — Sprint 00 shipped only random_legal; Sprint 01 adds the
+# frozen deterministic scripted_baseline (PR-13, Task 01.4) as the candidate
+# agent-under-test for run-0002's first comparison.
+AGENTS = {
+    "random_legal": random_legal_agent,
+    "scripted_baseline": scripted_baseline_agent,
+}
 
 
 def _now() -> str:
@@ -286,7 +292,7 @@ def main(argv=None) -> int:
         "deck_a_id": args.deck_id, "deck_b_id": args.deck_id,
         "match_index": args.match_index,
         "regime_id": args.regime_id, "run_id": args.run_id, "match_id": args.match_id,
-        "opponent_id": args.opponent, "agent_version": random_legal_agent.AGENT_VERSION,
+        "opponent_id": args.opponent, "agent_version": AGENTS[args.agent].AGENT_VERSION,
         "deck_hash": deck_hash(deck),
     }
     try:

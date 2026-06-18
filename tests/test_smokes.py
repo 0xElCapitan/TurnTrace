@@ -30,6 +30,11 @@ import run_match  # noqa: E402
 import run_eval  # noqa: E402
 import validate  # noqa: E402
 import hygiene_check  # noqa: E402
+import mirror_validate  # noqa: E402  (eval/, Sprint 01 PR-18)
+import canonical_json  # noqa: E402  (eval/, parity check)
+import delta_report  # noqa: E402  (analysis/, Sprint 01 PR-14)
+import replay_check  # noqa: E402  (analysis/, Sprint 01 PR-15)
+import scripted_baseline  # noqa: E402  (agents/runtime, Sprint 01 PR-13)
 from adapter import SimAdapter  # noqa: E402
 from _env import load_config, read_deck, resolve_deck_file  # noqa: E402
 
@@ -209,6 +214,179 @@ class DeterminismSmoke(unittest.TestCase):
         # Unseeded: the determinism smoke is EXPLICITLY skipped (NFR-3); record that.
         self.assertFalse(seed_controlled)
         print("determinism smoke: SKIPPED (seed_controlled=false; mode=unseeded)")
+
+
+# ====================== Sprint 01 smokes ======================
+# All throwaway runs below use write_ledger=False (O2) — they NEVER touch
+# docs/ledger.md, and build into tempdirs so they never touch runs/run-000{1,2}.
+
+
+class ScriptedBaselineSmoke(unittest.TestCase):
+    """PR-13 / AC-04: the scripted baseline is deterministic (no hidden state)."""
+
+    def test_select_deterministic(self):
+        a = scripted_baseline.select(5, 1, 2, None)
+        b = scripted_baseline.select(5, 1, 2, random.Random(1))
+        c = scripted_baseline.select(5, 1, 2, random.Random(99999))
+        self.assertEqual(a, [0, 1])
+        self.assertEqual(a, b)   # RNG must not influence selection
+        self.assertEqual(a, c)
+
+    def test_select_count_matches_random_legal_clamp(self):
+        # identical count behaviour to random_legal (the single-variable guarantee)
+        for n, lo, hi in [(3, 1, 1), (2, 1, 5), (0, 0, 0), (4, 2, 3)]:
+            k = hi if hi <= n else n
+            self.assertEqual(scripted_baseline.select(n, lo, hi), list(range(max(k, 0))))
+
+    def test_agent_contract(self):
+        obs = {"select": {"option": [{"type": 1}, {"type": 2}, {"type": 3}],
+                          "minCount": 1, "maxCount": 2}}
+        self.assertEqual(scripted_baseline.agent(obs), [0, 1])
+        with self.assertRaises(ValueError):
+            scripted_baseline.agent({"select": None})
+
+
+class NoLedgerGuardSmoke(unittest.TestCase):
+    """O2: a non-deliverable run (write_ledger=False / --no-ledger) writes NO ledger."""
+
+    def test_no_ledger_written(self):
+        tmp = Path(tempfile.mkdtemp(prefix="tt-noledger-"))
+        try:
+            ledger = tmp / "ledger.md"
+            res = run_eval.run_eval("run-noledger", tmp / "run-noledger",
+                                    write_ledger=False, ledger_path=ledger)
+            self.assertFalse(ledger.exists(), "no ledger file should be created")
+            self.assertFalse(res["ledger_appended"])
+            self.assertTrue((tmp / "run-noledger" / "summary.csv").exists())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_cli_no_ledger_flag(self):
+        tmp = Path(tempfile.mkdtemp(prefix="tt-noledger-cli-"))
+        try:
+            ledger = tmp / "ledger.md"
+            rc = run_eval.main(["--run-id", "run-cli", "--out-dir", str(tmp / "run-cli"),
+                                "--no-ledger", "--ledger", str(ledger)])
+            self.assertEqual(rc, 0)
+            self.assertFalse(ledger.exists())
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class ProvenanceSmoke(unittest.TestCase):
+    """O1: hashes.txt + manifest pin the runtime agent source (source-hash path)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tt-prov-"))
+        cls.rd = cls.tmp / "run-prov"
+        run_eval.run_eval("run-prov", cls.rd, agent_id="scripted_baseline", write_ledger=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_hashes_has_agent_source(self):
+        kv = {}
+        for line in (self.rd / "hashes.txt").read_text().splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                kv[k.strip()] = v.strip()
+        self.assertEqual(kv.get("agent_source_file"), "agents/runtime/scripted_baseline.py")
+        self.assertEqual(len(kv.get("agent_source_hash", "")), 64)  # sha256 hex
+        self.assertEqual(len(kv.get("config_hash", "")), 64)
+        self.assertIn("git_dirty", kv)  # honestly recorded
+
+    def test_manifest_has_agent_source(self):
+        man = json.loads((self.rd / "manifest.json").read_text())
+        self.assertEqual(man["agent_id"], "scripted_baseline")
+        self.assertEqual(man["agent_version"], "scripted-v001")
+        self.assertEqual(len(man["agent_source_hash"]), 64)
+
+
+class DeltaReportSmoke(unittest.TestCase):
+    """PR-14 / AC-01, AC-02."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tt-delta-"))
+        cls.base = cls.tmp / "run-a"   # NB: not 'run' — that shadows TestCase.run
+        run_eval.run_eval("run-a", cls.base, write_ledger=False)
+        # same-regime copy → every metric unmoved (exercises "why no change" on all)
+        cls.same = cls.tmp / "run-a-copy"
+        shutil.copytree(cls.base, cls.same)
+        # cross-regime copy → tamper ONLY the copy's manifest regime_id
+        cls.xreg = cls.tmp / "run-a-xregime"
+        shutil.copytree(cls.base, cls.xreg)
+        man = json.loads((cls.xreg / "manifest.json").read_text())
+        man["regime_id"] = "regime-v999"
+        (cls.xreg / "manifest.json").write_text(json.dumps(man, indent=2))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_per_metric_deltas_with_why_no_change(self):
+        rep = delta_report.compare(self.base, self.same)
+        self.assertGreater(len(rep["metrics"]), 0)
+        for m in rep["metrics"]:           # identical runs → all unmoved → all explained (AC-01)
+            self.assertFalse(m["moved"])
+            self.assertTrue(m["why_no_change"])
+
+    def test_cross_regime_refused(self):
+        with self.assertRaises(delta_report.CrossRegimeRefusal):
+            delta_report.compare(self.base, self.xreg)
+        self.assertEqual(delta_report.main([str(self.base), str(self.xreg)]), 2)  # AC-02
+
+
+class ReplayCheckSmoke(unittest.TestCase):
+    """PR-15 / AC-03 + canonical-hash parity with eval/canonical_json.py."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tt-replay-"))
+        cls.rd = cls.tmp / "run-r"
+        run_eval.run_eval("run-r", cls.rd, write_ledger=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_audit_trail_equality(self):
+        rep = replay_check.replay_check(self.rd)
+        self.assertTrue(rep["audit_ok"])
+        self.assertEqual(len(rep["audit"]["mismatches"]), 0)
+
+    def test_determinism_skipped_unseeded(self):
+        rep = replay_check.replay_check(self.rd)
+        self.assertEqual(rep["mode"], "unseeded")
+        self.assertEqual(rep["determinism"]["status"], "skipped")
+
+    def test_canonical_parity_with_eval(self):
+        for s in ({"b": 2, "a": 1}, [1, {"z": 9, "y": [3, 2, 1]}], {"n": None, "t": True}):
+            self.assertEqual(replay_check._hash_canonical(s), canonical_json.hash_canonical(s))
+            self.assertEqual(replay_check._canonical_dumps(s), canonical_json.canonical_dumps(s))
+
+    def test_tamper_detected(self):
+        tampered = self.tmp / "run-tampered"
+        shutil.copytree(self.rd, tampered)
+        a_trace = next(iter((tampered / "traces").glob("*.jsonl")))
+        a_trace.write_text(a_trace.read_text() + '{"record_type":"decision"}\n')
+        rep = replay_check.replay_check(tampered)
+        self.assertFalse(rep["audit_ok"])
+
+
+class MirrorValidateSmoke(unittest.TestCase):
+    """PR-18 / AC-05: candidate-vs-self full match reports pass/fail."""
+
+    def test_scripted_baseline_passes(self):
+        self.assertEqual(mirror_validate.main(["--agent", "scripted_baseline"]), 0)
+
+    def test_random_legal_passes(self):
+        self.assertEqual(mirror_validate.main(["--agent", "random_legal"]), 0)
+
+    def test_unknown_agent_setup_fails(self):
+        self.assertEqual(mirror_validate.main(["--agent", "does_not_exist"]), 2)
 
 
 if __name__ == "__main__":

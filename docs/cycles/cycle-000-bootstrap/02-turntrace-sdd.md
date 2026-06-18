@@ -452,6 +452,13 @@ optional free-form **`agent_meta`** slot (uncalibrated heuristic scores only —
 - **Terminal record (mandatory/match):** final outcome, `ending_cause`, final prize counts both sides, last
   `decision_index` — closes the "last decision has no next state" gap.
 - **Canonical form** for hashing: sorted keys, stable numbers, no incidental whitespace (`canonical_json`).
+- **`decision_index` reconciliation (Sprint 01, docs-only — no behavior change):** `decision_index`
+  is a **global per-match** monotonic 0-based index over **all** trace rows (both `agent` and
+  `opponent` decisions, plus the terminal row) — *not* a per-agent counter. The agent-only count is the
+  separate `total_decisions` field, which the §3.2 self-consistency gate ties to `player==agent` rows.
+  This matches `eval/schemas.md` ("global monotonic, 0-based") and the implementation
+  (`eval/run_match.py`: `decision_index = len(trace)`); the validator enforces the `total_decisions`
+  invariant. (Reconciles Sprint 00 closeout O3; code and schema were already consistent.)
 
 ### 3.4 `summary.csv` (PR-7) — aggregate per run
 
