@@ -9,3 +9,6 @@
 # Temporary
 last-touched
 *.tmp
+
+# History snapshots (local working state)
+.br_history/
