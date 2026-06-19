@@ -257,10 +257,19 @@ _INFERENTIAL_RULES = [
 ]
 
 # ---- forbidden agent words (docs/claim-ceiling.md:54-59) — rejected only when
-# ----  AFFIRMATIVE (no negation token within the preceding window). ----
+# ----  AFFIRMATIVE. C2 (Cycle-005): a forbidden word is suppressed ONLY when a
+# ----  negation token is the IMMEDIATELY preceding token — whitespace/punctuation
+# ----  may sit between it and the word, but no intervening content word. The
+# ----  Cycle-004 broad fixed-window scan let an UNRELATED negation nearby suppress
+# ----  an affirmative word; immediate-precedence suppresses a strict subset of that
+# ----  window, so the validator now flags a SUPERSET of affirmative forbidden words
+# ----  (conservative-only, NFR-1). The negation token set is preserved; `_NEG_WINDOW`
+# ----  is repurposed as the look-behind bound that keeps suppression a strict subset
+# ----  of the Cycle-004 rule (a negation matched here was in that window too). ----
 _FORBIDDEN_AGENT_WORDS = ("strong", "competitive", "optimal", "calibrated", "complete")
-_NEGATION_RE = re.compile(r"\b(no|not|never|non|without|neither|nor)\b|n't", re.IGNORECASE)
 _NEG_WINDOW = 36
+_NEGATION_RE = re.compile(
+    r"(?:\b(?:no|not|never|non|without|neither|nor)\b|n't)[\s\W]*\Z", re.IGNORECASE)
 
 # ---- cross-regime field/value markers (NFR-5). Affirmative connectives only, so the
 # ----  Rung-1 footer's "never compared to" framing is not a false positive. ----
@@ -300,6 +309,11 @@ def _affirmative_forbidden_words(text: str) -> "list[str]":
     out = []
     for w in _FORBIDDEN_AGENT_WORDS:
         for m in re.finditer(r"\b" + re.escape(w) + r"\b", low):
+            # C2: suppress only when a negation token IMMEDIATELY precedes the word
+            # (no intervening content word). `_NEGATION_RE` is end-anchored, and the
+            # look-behind is bounded by `_NEG_WINDOW`, so any suppression here was also
+            # a suppression under the Cycle-004 broad window -> strict subset -> the
+            # validator only ever flags MORE affirmative forbidden words, never fewer.
             pre = low[max(0, m.start() - _NEG_WINDOW):m.start()]
             if not _NEGATION_RE.search(pre):
                 out.append(w)
@@ -330,6 +344,25 @@ def _scan_string(field: str, s: str, out: "list[tuple[str, str]]") -> None:
         out.append((field, "cross-regime comparison in value (forbidden; single-regime only, NFR-5)"))
 
 
+def _enforce_hashes_digest(field_path: str, hashes_dict: dict,
+                           out: "list[tuple[str, str]]") -> None:
+    """C1 (Cycle-005): every value in a 'hashes'-keyed dict — at ANY nesting depth —
+    must be a SHA-256 digest string, never raw content. The Cycle-004 validator
+    enforced this on the TOP-LEVEL 'hashes' only (validate_summary's digest block),
+    leaving a nested 'hashes' map (e.g. under an agent) a smuggling seam for a clean
+    non-digest token. The reason message is identical to that top-level block, so
+    assertions keyed on 'SHA-256 digest' / 'Pokemon-Element' match at any position.
+    Adds rejections only — a valid nested digest still passes (conservative-only,
+    NFR-1)."""
+    for rid, hv in hashes_dict.items():
+        if not (isinstance(hv, str) and _SHA256_RE.match(hv)):
+            out.append((
+                f"{field_path}.{rid}",
+                "card-identity must be a SHA-256 digest, not raw content "
+                "(Competition-Data / Pokemon-Element leak; eval/schemas.md:13-15)",
+            ))
+
+
 def _walk(node, path: str, keys_are_fields: bool, out: "list[tuple[str, str]]") -> None:
     if isinstance(node, dict):
         for k, v in node.items():
@@ -340,6 +373,12 @@ def _walk(node, path: str, keys_are_fields: bool, out: "list[tuple[str, str]]") 
             else:
                 # keys here are data (run_ids under 'hashes') — scan, don't allow-list.
                 _scan_string(kp, str(k), out)
+            # C1 (Cycle-005): enforce digest-shape on EVERY 'hashes'-keyed dict, at any
+            # depth — not just the top-level block in validate_summary. Closes the
+            # nested-'hashes' smuggling seam (a clean non-digest token under, e.g., an
+            # agent's 'hashes' map).
+            if k == "hashes" and isinstance(v, dict):
+                _enforce_hashes_digest(kp, v, out)
             # under 'hashes', the child dict's keys are data, not fields.
             _walk(v, kp, keys_are_fields=(k != "hashes"), out=out)
     elif isinstance(node, list):
@@ -408,7 +447,21 @@ def _collect_regime_ids(obj) -> set:
 # =====================================================================================
 
 def _refuse_tracked_out(out_path: Path) -> None:
-    """Generator is local-by-default (NG4): never write to docs/ or any ledger file."""
+    """Generator is local-by-default (NG4): never write to docs/ or any ledger file.
+
+    C3 (Cycle-005): repo-root-resolve the candidate path FIRST so an *absolute* path
+    into the repo's tracked docs/ tree is refused too — the Cycle-004 guard only
+    matched a relative 'docs/...' prefix (an absolute path into repo docs/ slipped it).
+    The original relative-docs prefix check and the ledger basename guard are preserved
+    verbatim below, so this is conservative-only: strictly more paths refused, none
+    newly allowed (NFR-1)."""
+    # (C3) absolute OR relative path that resolves inside the repo's tracked docs/ tree.
+    resolved = Path(out_path).resolve()
+    docs_root = (REPO_ROOT / "docs").resolve()
+    if resolved == docs_root or docs_root in resolved.parents:
+        raise ValueError(
+            f"refusing to write to a tracked docs path '{out_path}' — generator output "
+            "is local-by-default (NG4); use a gitignored local path")
     norm = _norm_path(str(out_path))
     parts = norm.split("/")
     if parts and parts[0] == "docs":
@@ -490,6 +543,16 @@ def main(argv=None) -> int:
     except (FileNotFoundError, ValueError) as e:
         print(f"evidence_summary: input failure — {e}", file=sys.stderr)
         return 1
+
+    # C4 (Cycle-005): an empty `hashes` map means no manifest carried a SHA-256
+    # integrity stamp for any run — provenance is un-stamped. Surface it on stderr
+    # (exit stays 0; JSON-first stdout untouched) so it is never silently treated as
+    # strong provenance. Manifest-only sourcing is unchanged — no new hash-source
+    # file is read; a future promotion gate (Cycle-006+) MUST reject this.
+    if not summary.get("hashes"):
+        print("evidence_summary: WARNING — empty hashes (no manifest integrity stamp "
+              "found); provenance is un-stamped and a future promotion gate must "
+              "reject this.", file=sys.stderr)
 
     text = render_json(summary)  # JSON-first; --json is accepted but JSON is the default form
     if args.out:

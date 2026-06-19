@@ -253,6 +253,120 @@ def run_checks(tmp: Path) -> None:
     check("12 no third-party / cross-zone import in evidence_summary.py",
           third_party == set(), f"unexpected={third_party}")
 
+    # --- 13. C1–C4 hardening ---
+    # 13a C1 — a nested non-digest token under a 'hashes' map is rejected (exit 3).
+    nested_bad = copy.deepcopy(good)
+    nested_bad["agents"][0]["hashes"] = {"r": "clean-non-digest"}
+    v13a = es.validate_summary(nested_bad)
+    check("13a C1 nested non-digest flagged at a nested hashes path (digest reason)",
+          any(f.startswith("agents") and ".hashes." in f and "SHA-256 digest" in r
+              for f, r in v13a), str(v13a))
+    check("13a C1 nested non-digest -> exit 3",
+          validate_file_exit(nested_bad, tmp, "c13a.json") == 3)
+
+    # 13b C1 — a nested VALID digest is not falsely flagged as a digest violation.
+    nested_ok = copy.deepcopy(good)
+    nested_ok["agents"][0]["hashes"] = {"r": _HEX64}
+    v13b = es.validate_summary(nested_ok)
+    check("13b C1 nested valid digest not falsely flagged (validates clean)",
+          v13b == [], str(v13b))
+
+    # 13c C1 — the preserved top-level digest block still rejects a non-digest.
+    top_bad = copy.deepcopy(good)
+    top_bad["hashes"]["run-a1"] = "clean-non-digest"
+    v13c = es.validate_summary(top_bad)
+    check("13c C1 top-level non-digest still flagged with digest reason",
+          any(f == "hashes.run-a1" and "SHA-256 digest" in r for f, r in v13c), str(v13c))
+    check("13c C1 top-level non-digest -> exit 3",
+          validate_file_exit(top_bad, tmp, "c13c.json") == 3)
+
+    # 13d C2 — an UNRELATED negation no longer suppresses an affirmative forbidden word.
+    c2_unrelated = copy.deepcopy(good)
+    c2_unrelated["claim_ceiling"] = "claim not made; agent strong"
+    v13d = es.validate_summary(c2_unrelated)
+    check("13d C2 unrelated negation no longer suppresses 'strong'",
+          any("forbidden agent word" in r and "strong" in r for _, r in v13d), str(v13d))
+    check("13d C2 unrelated-negation affirmative -> exit 3",
+          validate_file_exit(c2_unrelated, tmp, "c13d.json") == 3)
+
+    # 13e C2 — an IMMEDIATE negation still suppresses (legitimate negated example clean).
+    c2_immediate = copy.deepcopy(good)
+    c2_immediate["claim_ceiling"] = (
+        "POISON probe (asserted-rejected): never strong; not optimal.")
+    v13e = es.validate_summary(c2_immediate)
+    check("13e C2 immediate negation still suppresses (legit negated example clean)",
+          v13e == [], str(v13e))
+
+    # 13f C2 — a plainly affirmative forbidden word is still rejected (parity).
+    c2_affirm = copy.deepcopy(good)
+    c2_affirm["claim_ceiling"] = "agent is strong"
+    v13f = es.validate_summary(c2_affirm)
+    check("13f C2 affirmative 'strong' still flagged",
+          any("forbidden agent word" in r and "strong" in r for _, r in v13f), str(v13f))
+    check("13f C2 affirmative -> exit 3",
+          validate_file_exit(c2_affirm, tmp, "c13f.json") == 3)
+
+    # 13g C3 — an ABSOLUTE path into the repo's tracked docs/ is refused.
+    refused_abs_docs = False
+    try:
+        es._refuse_tracked_out(REPO_ROOT / "docs" / "x.json")
+    except ValueError:
+        refused_abs_docs = True
+    check("13g C3 absolute repo-docs path refused", refused_abs_docs)
+
+    # 13h C3 — relative docs/ and the ledger basename are STILL refused (regression).
+    refused_rel_docs = refused_ledger_any = False
+    try:
+        es._refuse_tracked_out(Path("docs/x.json"))
+    except ValueError:
+        refused_rel_docs = True
+    try:
+        es._refuse_tracked_out(Path("a/b/ledger.md"))
+    except ValueError:
+        refused_ledger_any = True
+    check("13h C3 relative docs/ still refused", refused_rel_docs)
+    check("13h C3 ledger basename still refused on any path", refused_ledger_any)
+
+    # 13i C3 — a safe local/gitignored path is still allowed (no raise).
+    allowed_local = True
+    try:
+        es._refuse_tracked_out(tmp / "evidence-local.json")
+    except ValueError:
+        allowed_local = False
+    check("13i C3 safe local path still allowed", allowed_local)
+
+    # 13j C4 — empty hashes warns on stderr and exits 0; docs/ledger.md byte-unchanged.
+    eh1 = make_run_dir(tmp, "run-eh1", "regime-v002", "agentH", "agentH-v001",
+                       manifest_hash="")
+    eh2 = make_run_dir(tmp, "run-eh2", "regime-v002", "agentH", "agentH-v001",
+                       manifest_hash="")
+    empty_summary = es.build_summary([eh1, eh2])
+    ledger = REPO_ROOT / "docs" / "ledger.md"
+    before_13j = ledger.read_bytes() if ledger.exists() else None
+    eh_err = io.StringIO()
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(eh_err):
+        rc_eh = es.main([str(eh1), str(eh2)])
+    after_13j = ledger.read_bytes() if ledger.exists() else None
+    eh_warn = eh_err.getvalue().lower()
+    check("13j C4 assembled hashes is empty", empty_summary["hashes"] == {})
+    check("13j C4 empty hashes warns on stderr (WARNING + empty hashes)",
+          "warning" in eh_warn and "empty hashes" in eh_warn, eh_warn)
+    check("13j C4 empty-hashes warning rides exit 0", rc_eh == 0)
+    check("13j C4 docs/ledger.md byte-unchanged after empty-hashes generate",
+          before_13j == after_13j)
+
+    # 13k C4 — non-empty hashes emits NO empty-hashes warning; exit 0.
+    nk_err = io.StringIO()
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(nk_err):
+        rc_nk = es.main([str(a1), str(a2), str(a3)])
+    check("13k C4 non-empty hashes -> exit 0", rc_nk == 0)
+    check("13k C4 non-empty hashes emits no empty-hashes warning",
+          "empty hashes" not in nk_err.getvalue().lower())
+
+    # 13l C4 — no 'hashes.txt' source reference (manifest-only read surface).
+    check("13l C4 no 'hashes.txt' read in evidence_summary.py source",
+          "hashes.txt" not in src)
+
 
 _STDLIB = {
     "__future__", "argparse", "json", "re", "sys", "pathlib",
@@ -281,7 +395,8 @@ def main() -> int:
         print(f"\ntest_evidence_summary: {len(_FAILURES)} FAILURE(S): {_FAILURES}",
               file=sys.stderr)
         return 1
-    print("\ntest_evidence_summary: OK — all 12 required checks pass", file=sys.stderr)
+    print("\ntest_evidence_summary: OK — all 12 required checks + C1–C4 hardening "
+          "block 13 (13a–13l) pass", file=sys.stderr)
     return 0
 
 
