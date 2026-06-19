@@ -108,3 +108,53 @@ computable now versus deferred.
 - **Legal-action enumeration:** CONFIRMED.
 - **Hidden-state visibility:** own hand observable; opponent hand + own deck order hidden
   (and never logged).
+
+## Competition-findings additions (FM-10 … FM-11)
+
+> Appended 2026-06-19 by the pre-Cycle-005 competition-findings docs patch (operator decisions
+> SP-8 / SP-9, `docs/cycles/cycle-000-bootstrap/04-operator-decisions.md`). These are **seeded from
+> competition findings, not observed in a run** — so `First seen` is `none (seeded)` and there are
+> no `run_id`/`match_id`/`decision_index` examples yet. No Competition Data: simulator-behavior
+> content only; no card IDs/names, deck lists, or trace rows.
+
+### FM-10: Official-rule assumption mismatch
+- Status: watched
+- First seen: none (seeded from competition findings 2026-06-19; SP-8)
+- Signature: an expected action is absent from the offered legal options (`obs.select.option`); or a
+  trace note shows an official-rule action category that analysis expected but the simulator never
+  offered; or an analyzer-derived outcome disagrees with the simulator terminal result
+  (`match-summary` `result` / `ending_cause`).
+- Description: an agent or offline analyzer assumes official Pokémon TCG behavior where the `cabt`
+  simulator uses different competition behavior — e.g. an officially declarable attack the simulator
+  omits when its effect cannot resolve; automatic (left-to-right) vs. player-chosen multi-target
+  ordering; or simultaneous-Knock-Out prize ordering. Per SP-8 the simulator is authoritative.
+- Why it costs games: usually outcome-equivalent, but a mis-modeled legality/ordering can make the
+  agent expect an action it can never take, or make offline analysis mis-attribute an outcome the
+  simulator already decided.
+- Examples: none (seeded; no run evidence). Record any later-observed divergence as a
+  simulator-behavior note by `run_id`+`match_id`+`decision_index`.
+- Regression check: none yet — the binding discipline is "trust `obs.select.option`, simulator logs,
+  and the simulator terminal result; never build runtime logic around official-rule actions the
+  simulator does not expose." Record a mismatch as a simulator-behavior note, **not** an agent failure.
+- Notes: a guardrail, not an observed defect; pairs with SP-8 / CC-10. Detectable wherever the
+  expected action category is enumerable from `obs.select.option`.
+
+### FM-11: Top-episode overfitting / contaminated evidence
+- Status: open
+- First seen: none (seeded from competition findings 2026-06-19; SP-9)
+- Signature: a change rationale cites daily top episodes but **no** same-regime TurnTrace run-vs-run
+  comparison exists; or report language implies improvement from scouting alone; or raw top-episode
+  data appears in git / tracked docs (this last leg is mechanically caught by the
+  `eval/hygiene_check.py` raw-data path rules).
+- Description: agent changes are justified by public top-episode observations without proving
+  improvement under a frozen TurnTrace regime. Top episodes are hypothesis-generation input only
+  (SP-9); they are not a same-regime benchmark and not proof of improvement.
+- Why it costs games: belief without same-regime evidence drifts the agent on opponent-pool drift or
+  run-to-run luck instead of a real, attributable delta — the exact failure TurnTrace exists to prevent.
+- Examples: none (seeded; no run evidence).
+- Regression check: require a same-regime TurnTrace comparison (descriptive deltas under the existing
+  ceiling) before any improvement claim; keep raw daily datasets local/ignored (track only sanitized
+  notes and hashes). The raw-data-in-git leg is gated by `eval/hygiene_check.py`.
+- Notes: a process / evidence-discipline guardrail; the "raw data in git" leg is a true mechanical
+  signature, the "no same-regime comparison" leg is a provenance/process check. Pairs with
+  SP-9 / SP-6 / CC-6.
