@@ -37,6 +37,7 @@ import delta_report  # noqa: E402  (analysis/, Sprint 01 PR-14)
 import replay_check  # noqa: E402  (analysis/, Sprint 01 PR-15)
 import scripted_baseline  # noqa: E402  (agents/runtime, Sprint 01 PR-13)
 import failure_report  # noqa: E402  (analysis/, Sprint 02 PR-2)
+import dispersion_report  # noqa: E402  (analysis/, Cycle-002 S02-T2)
 from adapter import SimAdapter  # noqa: E402
 from _env import load_config, read_deck, resolve_deck_file  # noqa: E402
 
@@ -781,6 +782,253 @@ class RegimeV002GuardsAndLedgerSmoke(unittest.TestCase):
                 os.environ["TURNTRACE_DECK_FILE"] = prev
         self.assertFalse(drift_dir.exists())     # guard fired before any dir/match write
         self.assertFalse(self.ledger.exists())   # and never any ledger write
+
+
+# ============== Cycle-002 Sprint 02 — dispersion report smokes ==============
+# S02-T3 / AC-S02-2..5, AC-S02-7. SYNTHETIC fixtures ONLY: these classes build run
+# dirs directly (manifest.json + match_results/*.json) — they invoke NO simulator,
+# read NO Competition Data, and touch neither runs/run-000{1,2} nor docs/ledger.md.
+# Fixture metric values are set explicitly (deterministic by construction; no RNG is
+# used, so no random seed is needed — and nothing here implies simulator seed
+# control: sim/capabilities.json seed_controlled=false is unchanged).
+
+# A synthetic poison string: tokens that look like Competition Data / raw gameplay.
+# It is written into the per-decision sidecars and the per-match error field; the
+# dispersion module must never surface any of these tokens.
+_DISP_POISON = ("NOT_A_REAL_CARD CARD_ID_0xDEADBEEF deck.csv hand=[A,B,C] "
+                "DROP-TABLE card_list.pdf decklist.csv raw-trace-row")
+_DISP_POISON_TOKENS = ("NOT_A_REAL_CARD", "0xDEADBEEF", "deck.csv", "hand=[",
+                       "DROP-TABLE", "card_list.pdf", "decklist.csv", "raw-trace-row")
+
+
+def _write_synth_run(run_dir, *, run_id, agent_id, agent_version, regime_id,
+                     n=10, wins=5, turns=8, wall_ms=10,
+                     poison_sidecar=None, poison_error=None):
+    """Build a synthetic sealed-run-dir shape: manifest.json (the regime/agent
+    authority) + ``n`` match_results records carrying exactly the fields
+    ``aggregate_run`` reads. No simulator, no Competition Data. Optionally poison the
+    per-decision sidecars and/or the per-match error field to prove they are never
+    surfaced by the dispersion report."""
+    mr = run_dir / "match_results"
+    mr.mkdir(parents=True)
+    manifest = {
+        "run_id": run_id, "regime_id": regime_id, "agent_id": agent_id,
+        "agent_version": agent_version, "opponent_id": "synthetic-opponent",
+        "mode": "unseeded", "expected_match_ids": [f"M{i:04d}" for i in range(1, n + 1)],
+    }
+    (run_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    for i in range(1, n + 1):
+        rec = {
+            "match_id": f"M{i:04d}", "match_index": i,
+            "result": "win" if i <= wins else "loss",
+            "turns": turns, "wall_clock_ms": wall_ms,
+            "invalid_action_detectable": True, "invalid_action_count": 0,
+            "timeout": None, "error": poison_error,
+            "agent_id": agent_id, "agent_version": agent_version,
+            "opponent_id": "synthetic-opponent", "regime_id": regime_id,
+            "run_id": run_id,
+        }
+        (mr / f"M{i:04d}.json").write_text(json.dumps(rec), encoding="utf-8")
+    if poison_sidecar is not None:
+        sd = run_dir / "traces"   # the per-decision sidecar dir the module must ignore
+        sd.mkdir(exist_ok=True)
+        for i in range(1, n + 1):
+            (sd / f"M{i:04d}.jsonl").write_text(poison_sidecar + "\n", encoding="utf-8")
+    return run_dir
+
+
+class DispersionSingleRegimeGuard(unittest.TestCase):
+    """S02-T3 #1 / AC-S02-3: uniform regime → exit 0; mixed regime → exit 2."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tt-disp-guard-"))
+        cls.v002 = [
+            _write_synth_run(cls.tmp / f"run-v002-b-{i}", run_id=f"run-v002-b-{i}",
+                             agent_id="random_legal", agent_version="random_legal-v001",
+                             regime_id="regime-v002", n=10, wins=3 + i)
+            for i in range(1, 4)
+        ]
+        cls.v001 = _write_synth_run(
+            cls.tmp / "run-v001-x", run_id="run-v001-x", agent_id="random_legal",
+            agent_version="random_legal-v001", regime_id="regime-v001", n=10, wins=5)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_uniform_regime_v002_exit_0(self):
+        rep = dispersion_report.disperse(self.v002)
+        self.assertEqual(rep["regime_id"], "regime-v002")
+        self.assertEqual(rep["agents"][0]["K"], 3)
+        self.assertEqual(dispersion_report.main([str(p) for p in self.v002]), 0)
+
+    def test_mixed_regime_refused_exit_2(self):
+        with self.assertRaises(dispersion_report.MixedRegimeRefusal):
+            dispersion_report.disperse([self.v002[0], self.v001])
+        self.assertEqual(
+            dispersion_report.main([str(self.v002[0]), str(self.v001)]), 2)
+
+
+class DispersionDescriptiveOnly(unittest.TestCase):
+    """S02-T3 #2 / AC-S02-2: output carries the seven allowed statistics and NONE of
+    the inferential / overreach terms; the module computes no std dev / variance."""
+
+    ALLOWED = ("count", "min", "max", "range", "mean", "median", "spread")
+    FORBIDDEN = ("standard deviation", "variance", "confidence interval", "p-value",
+                 "significant", "hypothesis", "error bar", "better", "worse",
+                 "uplift", "improvement")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tt-disp-desc-"))
+        # Three runs with deliberately DIFFERENT win counts → non-zero spread.
+        cls.runs = [
+            _write_synth_run(cls.tmp / f"run-v002-c-{i}", run_id=f"run-v002-c-{i}",
+                             agent_id="scripted_baseline", agent_version="scripted-v001",
+                             regime_id="regime-v002", n=10, wins=w)
+            for i, w in enumerate((3, 5, 7), start=1)
+        ]
+        cls.rep = dispersion_report.disperse(cls.runs)
+        cls.md = dispersion_report.render(cls.rep)
+        cls.js = dispersion_report.render_json(cls.rep)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_descriptive_stats_values(self):
+        s = dispersion_report.descriptive_stats([0.3, 0.5, 0.7])
+        self.assertEqual(set(s), set(self.ALLOWED))          # exactly the 7 allowed keys
+        self.assertEqual(s["count"], 3)
+        self.assertEqual(s["min"], 0.3)
+        self.assertEqual(s["max"], 0.7)
+        self.assertEqual(s["range"], [0.3, 0.7])
+        self.assertEqual(s["mean"], 0.5)
+        self.assertEqual(s["median"], 0.5)
+        self.assertEqual(s["spread"], 0.4)                   # max - min, not std dev/variance
+        empty = dispersion_report.descriptive_stats([None, None])
+        self.assertEqual(empty["count"], 0)
+        self.assertIsNone(empty["spread"])
+
+    def test_output_includes_allowed_terms(self):
+        for term in self.ALLOWED:
+            self.assertIn(term, self.md, f"descriptive term missing from report: {term}")
+
+    def test_output_excludes_inferential_terms(self):
+        low_md, low_js = self.md.lower(), self.js.lower()
+        for term in self.FORBIDDEN:
+            self.assertNotIn(term, low_md, f"forbidden term leaked into Markdown: {term}")
+            self.assertNotIn(term, low_js, f"forbidden term leaked into JSON: {term}")
+
+    def test_no_inferential_code_path(self):
+        # Structural: the module computes none of std dev / variance — there is no call
+        # to the inferential statistics functions (only statistics.median is used).
+        src = Path(dispersion_report.__file__).read_text(encoding="utf-8")
+        for call in ("statistics.stdev", "statistics.pstdev",
+                     "statistics.variance", "statistics.pvariance"):
+            self.assertNotIn(call, src, f"inferential/variance code path present: {call}")
+
+
+class DispersionImportBoundary(unittest.TestCase):
+    """S02-T3 #3 / AC-S02-4: dispersion_report is in the import-direction lint's
+    scanned set, reports zero violations, and imports no eval/sim/cabt/runtime
+    module (intra-analysis ``import aggregate`` is allowed)."""
+
+    def test_module_scanned_and_clean(self):
+        zone_map = test_import_direction._module_zone_map()
+        self.assertEqual(zone_map.get("dispersion_report"), "analysis")
+        offending = [v for v in test_import_direction.check() if "dispersion_report" in v]
+        self.assertEqual(offending, [], f"dispersion_report import violations: {offending}")
+
+    def test_no_forbidden_zone_imports(self):
+        src = REPO_ROOT / "analysis" / "dispersion_report.py"
+        zone_map = test_import_direction._module_zone_map()
+        imported_zones = {zone_map.get(name) for name in test_import_direction._top_imports(src)}
+        for forbidden in ("eval", "sim", "runtime", "cabt"):
+            self.assertNotIn(forbidden, imported_zones,
+                             f"dispersion_report must not import zone {forbidden}")
+        self.assertIn("aggregate", test_import_direction._top_imports(src))  # intra-analysis reuse
+
+
+class DispersionSanitization(unittest.TestCase):
+    """S02-T3 #4 / AC-S02-5: the report reads only manifest.json + match_results/*.json.
+    Poison written into the per-decision sidecars and the per-match error field is
+    never surfaced; the output passes hygiene_check; no sidecar dir is referenced."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tt-disp-sanit-"))
+        cls.clean = [
+            _write_synth_run(cls.tmp / f"clean-{i}", run_id=f"run-v002-c-{i}",
+                             agent_id="scripted_baseline", agent_version="scripted-v001",
+                             regime_id="regime-v002", n=10, wins=w)
+            for i, w in enumerate((4, 6), start=1)
+        ]
+        # identical metrics, but every sidecar AND every error field is poisoned
+        cls.poisoned = [
+            _write_synth_run(cls.tmp / f"poison-{i}", run_id=f"run-v002-c-{i}",
+                             agent_id="scripted_baseline", agent_version="scripted-v001",
+                             regime_id="regime-v002", n=10, wins=w,
+                             poison_sidecar=_DISP_POISON, poison_error=_DISP_POISON)
+            for i, w in enumerate((4, 6), start=1)
+        ]
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_poison_never_surfaced(self):
+        rep = dispersion_report.disperse(self.poisoned)
+        out = dispersion_report.render(rep) + "\n" + dispersion_report.render_json(rep)
+        for tok in _DISP_POISON_TOKENS:
+            self.assertNotIn(tok, out, f"poison token surfaced in dispersion output: {tok}")
+
+    def test_clean_and_poisoned_stats_identical(self):
+        # match_results + manifest are identical across clean/poisoned; only the
+        # sidecars + error bodies differ. Identical stats prove they were never read.
+        clean_stats = dispersion_report.disperse(self.clean)["agents"][0]["metrics"]
+        pois_stats = dispersion_report.disperse(self.poisoned)["agents"][0]["metrics"]
+        self.assertEqual(clean_stats, pois_stats)
+
+    def test_no_sidecar_reference_in_source(self):
+        src = Path(dispersion_report.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("traces", src)  # cannot construct a sidecar path → cannot read rows
+
+    def test_output_passes_hygiene(self):
+        rep = dispersion_report.disperse(self.clean)
+        out = self.tmp / "disp.md"
+        out.write_text(dispersion_report.render(rep), encoding="utf-8")
+        self.assertEqual(hygiene_check.main(["--paths", str(out)]), 0)
+
+
+class DispersionMissingInput(unittest.TestCase):
+    """S02-T3 #5 / AC-S02-3: missing run dir or missing match_results → exit 1."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tt-disp-missing-"))
+        # a dir with a manifest but an EMPTY match_results/ (no records)
+        cls.no_records = cls.tmp / "run-empty"
+        (cls.no_records / "match_results").mkdir(parents=True)
+        (cls.no_records / "manifest.json").write_text(
+            json.dumps({"run_id": "run-empty", "regime_id": "regime-v002",
+                        "agent_id": "random_legal"}), encoding="utf-8")
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_missing_run_dir_exit_1(self):
+        with self.assertRaises(FileNotFoundError):
+            dispersion_report.disperse([self.tmp / "does-not-exist"])
+        self.assertEqual(dispersion_report.main([str(self.tmp / "does-not-exist")]), 1)
+
+    def test_missing_match_results_exit_1(self):
+        with self.assertRaises(ValueError):
+            dispersion_report.disperse([self.no_records])
+        self.assertEqual(dispersion_report.main([str(self.no_records)]), 1)
 
 
 if __name__ == "__main__":
