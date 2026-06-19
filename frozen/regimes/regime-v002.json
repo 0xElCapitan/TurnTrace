@@ -1,0 +1,10 @@
+{
+  "regime_id": "regime-v002",
+  "created_at": "2026-06-18",
+  "seed_set": "seed-set-v002",
+  "opponent_pool": "opponent-pool-v001",
+  "deck_pool": "deck-pool-v001",
+  "metrics_spec": "metrics-spec-v001",
+  "mode": "unseeded",
+  "notes": "Additive larger-n regime (Cycle-002 scale lane). ONLY the seed-set differs from regime-v001: seed_set=seed-set-v002 (n=500). opponent-pool-v001 / deck-pool-v001 / metrics-spec-v001 are REUSED by reference + content hash (decision OD-3) - every regime-v002 run's hashes.txt records their content hashes (eval/run_eval.py:239-243), so reuse is provable without re-minting. regime-v001 and its four components remain byte-unchanged (NG7). A change to ANY component, or a new simulator/env version, requires a NEW regime file - never an edit (frozen/README.md). seed_controlled=false so mode=unseeded; reproducibility is distribution-stable + audit-trail, never byte-identical replay (NFR-3). NEVER compare regime-v002 numbers to regime-v001 ledger rows (NFR-5) - a result is meaningful only relative to its own regime_id. The claim ceiling stays Rung 1; the experiment ledger (docs/ledger.md) is the only ceiling-bearing artifact."
+}

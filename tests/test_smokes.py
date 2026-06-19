@@ -13,6 +13,7 @@ Run:  python tests/test_smokes.py
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -622,6 +623,164 @@ class FailureReportImportCoverage(unittest.TestCase):
         self.assertEqual(zone_map.get("failure_report"), "analysis")
         offending = [v for v in test_import_direction.check() if "failure_report" in v]
         self.assertEqual(offending, [], f"failure_report import violations: {offending}")
+
+
+# ====================== Cycle-002 Sprint 01 smokes ======================
+# Scale Foundation (OA-2 Sprint 01). Every throwaway run below uses the shipped
+# write_ledger=False default and builds into a tempdir with a REDIRECTED (tmp)
+# ledger — they NEVER touch runs/run-000{1,2}, the sealed run dirs, or
+# docs/ledger.md, and they mutate no v001 frozen file. No guard logic is changed;
+# these tests only exercise the existing run_eval guards at the larger regime-v002 N.
+
+
+class V001ByteUnchangedSmoke(unittest.TestCase):
+    """S01-T4 / AC-S01-3: regime-v001 + its four components are byte-unchanged.
+
+    Golden = LF-normalized content sha256 captured at Sprint 01. Line endings are
+    normalized on read (universal-newline) because the repo runs core.autocrlf=true
+    with no .gitattributes: raw working-tree bytes are CRLF on a Windows checkout and
+    LF on Linux, but the COMMITTED content is LF either way. Hashing the LF-normalized
+    content pins each file's CONTENT identity portably — any real content edit changes
+    the hash and fails here. Do NOT update these goldens to silence a failure: a v001
+    change is a NEW regime (regime-v002), never an edit (NG7; frozen/README.md).
+    """
+
+    GOLDEN_LF_SHA256 = {
+        "frozen/regimes/regime-v001.json": "f99beee320dae9af0b653073d75ba1c4bafaa92d2813aeecabc14c02e6b59153",
+        "frozen/seeds/seed-set-v001.json": "d93f3692020ba044e5183b03d3cd279b39b816b3765d728e3b54404c69e83cd2",
+        "frozen/opponents/opponent-pool-v001.json": "f785bb98f80060c7289a40162c8a0ff514f624caa901e905994fe93e3e67958a",
+        "frozen/decks/deck-pool-v001.json": "cf4b2cbf6ba2459f26d2f81cef2ee27976e7e0ae4df65419affb8fc75ea7e694",
+        "frozen/metrics/metrics-spec-v001.json": "0d2283abc88d6bd0d62adbc1387c026c567443d356adaf7e65e32ee023673e5c",
+    }
+
+    def test_v001_components_byte_unchanged(self):
+        for rel, want in self.GOLDEN_LF_SHA256.items():
+            p = REPO_ROOT / rel
+            self.assertTrue(p.exists(), f"missing frozen v001 file: {rel}")
+            got = hashlib.sha256(p.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+            self.assertEqual(
+                got, want,
+                f"{rel} CONTENT changed — v001 must be byte-unchanged (NG7). A larger-n "
+                f"seed-set is a NEW regime (regime-v002), never an edit of v001.")
+
+
+class RegimeV002AdditiveSmoke(unittest.TestCase):
+    """S01-T2/T3 / AC-S01-2: seed-set-v002 + regime-v002 are additive and conform.
+
+    The schema mirrors v001 exactly, changing only the scale; regime-v002 reuses the
+    other three regime-v001 components by reference (OD-3) — only the seed-set differs.
+    Structural conformance only; no strength claim, no cross-regime comparison.
+    """
+
+    def _load(self, rel):
+        return json.loads((REPO_ROOT / rel).read_text(encoding="utf-8"))
+
+    def test_seed_set_v002_schema(self):
+        ss = self._load("frozen/seeds/seed-set-v002.json")
+        self.assertEqual(ss["seed_set_id"], "seed-set-v002")
+        self.assertEqual(ss["mode"], "unseeded")
+        self.assertIsNone(ss["seeds"])
+        self.assertEqual(ss["match_indices"], list(range(1, ss["n"] + 1)))  # contiguous neutral 1..N
+        self.assertEqual(len(ss["match_indices"]), ss["n"])
+        self.assertGreater(ss["n"], 12)  # a larger-n set than seed-set-v001 (n=12)
+        # additive: mirrors v001's field set exactly (same schema, only the scale differs)
+        self.assertEqual(set(ss), set(self._load("frozen/seeds/seed-set-v001.json")))
+
+    def test_regime_v002_reuses_v001_components_by_reference(self):
+        r2 = self._load("frozen/regimes/regime-v002.json")
+        r1 = self._load("frozen/regimes/regime-v001.json")
+        self.assertEqual(r2["regime_id"], "regime-v002")
+        self.assertEqual(r2["seed_set"], "seed-set-v002")            # the single deliberate difference
+        self.assertEqual(r2["opponent_pool"], "opponent-pool-v001")  # reused by reference (OD-3)
+        self.assertEqual(r2["deck_pool"], "deck-pool-v001")
+        self.assertEqual(r2["metrics_spec"], "metrics-spec-v001")
+        self.assertEqual(r2["mode"], "unseeded")
+        # additive: same field set as regime-v001; the three reused components are byte-identical refs
+        self.assertEqual(set(r2), set(r1))
+        self.assertEqual(r2["opponent_pool"], r1["opponent_pool"])
+        self.assertEqual(r2["deck_pool"], r1["deck_pool"])
+        self.assertEqual(r2["metrics_spec"], r1["metrics_spec"])
+        self.assertNotEqual(r2["seed_set"], r1["seed_set"])          # only the seed-set changed
+
+
+class RegimeV002GuardsAndLedgerSmoke(unittest.TestCase):
+    """S01-T5 + S01-T6 / AC-S01-4, AC-S01-5: at the larger N under regime-v002 the
+    no-ledger-by-default behavior and the deck-drift + immutability guards hold,
+    with no guard logic modified.
+
+    One sealed regime-v002 run (n=500, write_ledger=False) is built once into a
+    tempdir and shared across the checks. The ledger path is a REDIRECTED tmp file
+    that must never be created; docs/ledger.md, runs/, and the v001 frozen files are
+    never touched.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp(prefix="tt-v002-"))
+        cls.run_dir = cls.tmp / "run-v002-noledger"
+        cls.ledger = cls.tmp / "ledger.md"   # redirected; must NOT be created
+        # bare / non-deliverable run against regime-v002 (write_ledger defaults to False)
+        cls.res = run_eval.run_eval("run-v002-noledger", cls.run_dir,
+                                    regime_id="regime-v002", ledger_path=cls.ledger)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    # ---- S01-T5: no ledger by default at scale (AC-S01-4) ----
+    def test_no_ledger_row_by_default_v002(self):
+        self.assertFalse(self.res["ledger_appended"])
+        self.assertFalse(self.ledger.exists(),
+                         "a non-deliverable regime-v002 run must append NO ledger row by default")
+
+    def test_summary_csv_still_written_v002(self):
+        self.assertTrue((self.run_dir / "summary.csv").exists())  # summary output still produced
+        self.assertEqual(self.res["n"], 500)                      # the chosen larger N ran end-to-end
+
+    def test_redirected_ledger_is_not_the_tracked_ledger(self):
+        # the test never targets the tracked ledger — redirected tmp path only
+        self.assertNotEqual(self.ledger.resolve(), (REPO_ROOT / "docs" / "ledger.md").resolve())
+
+    # ---- S01-T6: immutability guard holds at scale (AC-S01-5) ----
+    def test_immutability_guard_refuses_populated_v002(self):
+        before = (self.run_dir / "manifest.json").read_text(encoding="utf-8")
+        with self.assertRaises(run_eval.ImmutabilityRefusal):
+            run_eval.run_eval("run-v002-noledger", self.run_dir, regime_id="regime-v002",
+                              ledger_path=self.ledger)
+        self.assertEqual((self.run_dir / "manifest.json").read_text(encoding="utf-8"), before)
+
+    def test_immutability_guard_exit_3_v002(self):
+        rc = run_eval.main(["--run-id", "run-v002-noledger", "--out-dir", str(self.run_dir),
+                            "--regime-id", "regime-v002", "--ledger", str(self.ledger)])
+        self.assertEqual(rc, 3)                 # populated dir → exit 3, unchanged guard
+        self.assertFalse(self.ledger.exists())  # the guard fires before any ledger write
+
+    # ---- S01-T6: deck-drift guard holds at scale (AC-S01-5) ----
+    def test_deck_drift_guard_refuses_v002(self):
+        # A SYNTHETIC 60-int deck (arbitrary integers — NOT Competition Data) whose
+        # content hash differs from the frozen deck-pool-v001 hash. The deck-drift
+        # guard precedes both the immutability guard and the match loop, so it fires
+        # first and no run dir is created and no match is played.
+        synth = self.tmp / "synthetic-deck.csv"
+        synth.write_text("\n".join(str(i) for i in range(1, 61)) + "\n", encoding="utf-8")
+        drift_dir = self.tmp / "run-v002-drift"
+        prev = os.environ.get("TURNTRACE_DECK_FILE")
+        os.environ["TURNTRACE_DECK_FILE"] = str(synth)
+        try:
+            with self.assertRaises(RuntimeError) as ctx:
+                run_eval.run_eval("run-v002-drift", drift_dir, regime_id="regime-v002",
+                                  ledger_path=self.ledger)
+            self.assertIn("deck drift", str(ctx.exception).lower())
+            rc = run_eval.main(["--run-id", "run-v002-drift2", "--regime-id", "regime-v002",
+                                "--out-dir", str(self.tmp / "run-v002-drift2")])
+            self.assertEqual(rc, 1)  # deck-drift RuntimeError → env/input failure exit 1
+        finally:
+            if prev is None:
+                os.environ.pop("TURNTRACE_DECK_FILE", None)
+            else:
+                os.environ["TURNTRACE_DECK_FILE"] = prev
+        self.assertFalse(drift_dir.exists())     # guard fired before any dir/match write
+        self.assertFalse(self.ledger.exists())   # and never any ledger write
 
 
 if __name__ == "__main__":
