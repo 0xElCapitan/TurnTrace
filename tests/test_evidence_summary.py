@@ -402,6 +402,18 @@ def run_checks(tmp: Path) -> None:
     check("14b' same empty-hashes summary under --validate still -> exit 0 (asymmetry)",
           validate_file_exit(empty_hashes, tmp, "p14bprime.json") == 0)
 
+    # 14b'' — a structurally-valid summary with the `hashes` key ABSENT ENTIRELY also
+    #         hard-fails (exit 3; CF-1 / OD-C5-2 floor): `summary.get("hashes")` -> None,
+    #         so `isinstance(None, dict)` is False and the promotion-only precheck fires
+    #         (evidence_summary.py:556). Distinct from 14b (an EMPTY {} map): this pins
+    #         the absent-key branch so it can never silently stop fail-closing.
+    absent_hashes = copy.deepcopy(good)
+    del absent_hashes["hashes"]
+    check("14b'' absent-hashes summary built (hashes key deleted entirely)",
+          "hashes" not in absent_hashes, str(sorted(absent_hashes)))
+    check("14b'' promotion-check on an absent-hashes summary -> exit 3 (fail-closed)",
+          promotion_check_file_exit(absent_hashes, tmp, "p14bpp.json") == 3)
+
     # 14c — a forbidden field/value/word leak hard-fails (exit 3): proves the FULL
     #       hardened validator re-runs. The leak summary still has non-empty hashes, so
     #       exit 3 here is the validator's doing, not the empty-hashes precheck.
