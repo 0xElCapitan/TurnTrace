@@ -1,192 +1,148 @@
-<!-- AGENT-CONTEXT
-name: TurnTrace
-type: framework
-purpose: TurnTrace is a data-loop and evaluation harness for simulator-based trading card game
-key_files: [CLAUDE.md, .claude/loa/CLAUDE.loa.md, .loa.config.yaml, .claude/scripts/, .claude/skills/]
-interfaces:
-  core: [/auditing-security, /autonomous-agent, /bridgebuilder-review, /browsing-constructs, /bug-triaging]
-  project: [/cost-budget-enforcer, /cross-repo-status-reader, /flatline-attacker, /graduated-trust, /hitl-jury-panel]
-dependencies: [git, jq, yq]
-capability_requirements:
-  - filesystem: read
-  - filesystem: write (scope: state)
-  - filesystem: write (scope: app)
-  - git: read_write
-  - shell: execute
-  - github_api: read_write (scope: external)
-version: unknown
-installation_mode: unknown
-trust_level: L2-verified
--->
+# TurnTrace — Butterfree Zone
 
-# TurnTrace
+Operator/agent context for **TurnTrace**. Code-grounded, sanitized, and
+deliberately small. This document describes TurnTrace itself — not the Loa
+development framework that happens to be mounted under `.claude/`. It contains
+no Competition Data; it only points at sanitized, tracked governance artifacts.
 
-<!-- provenance: CODE-FACTUAL -->
-TurnTrace is a data-loop and evaluation harness for simulator-based trading card game
+## Current standing
 
-The framework provides 40 specialized skills, built with TypeScript/JavaScript, Python, Shell.
+- **Cycle-007 is closed** — operator-accepted, committed, and pushed.
+- **Standing claim ceiling: Rung 2 — "beats random-legal."**
+- **Scope of that claim:** `scripted-v001` beats `random_legal-v001` under
+  `regime-v003` — one ledgered, same-regime, descriptive result (a disjoint-bands
+  rule over K=20 batches at n=500). Nothing broader is claimed.
+- **Authorities:** `docs/ledger.md` (evidence-admission), `docs/claim-ceiling.md`
+  (current standing-ceiling summary), `docs/cycles/cycle-007/07-closeout.md`
+  (closeout of record).
 
-## Key Capabilities
-<!-- provenance: CODE-FACTUAL -->
+## What TurnTrace is
 
-### API Surface — Extracted Reality
-#### agents/runtime/
-- `select(n_options, min_count, max_count, rng=None) -> list[int]` (`:27`) — uniform-random `max_count` distinct indices.
-- `agent(obs_dict) -> list[int]` (`:42`) — Kaggle/cabt submission contract; raises if `select is None`.
-- `select(n_options, min_count, max_count, rng=None) -> list[int]` (`:37`) — deterministic `[0..k-1]` (no RNG).
-- `agent(obs_dict) -> list[int]` (`:53`) — submission contract.
-#### sim/
-- `__init__(cg_dir=None, cfg=None)` (`:65`) — imports `cg.game` (loads cg.dll/libcg.so).
-- `start_match(deck0, deck1) -> dict` (`:80`); `step(selection) -> dict` (`:92`); `finish() -> None` (`:100`).
-- `capabilities() -> dict` (`:109`) — flags + measured throughput from `capabilities.json` or conservative defaults.
-- Static views (Competition-Data-free): `terminal` (`:137`), `your_index` (`:152`), `turn` (`:157`), `select_context` (`:162`), `is_deck_selection` (`:167`), `legal_options` (`:171`), `legal_digest` (`:185`), `public_summary` (`:193`), `private_summary` (`:219`), `selected_action_view` (`:241`), `outcome_for_player` (`:252`), `ending_cause` (`:261`).
-#### eval/
-#### analysis/
+TurnTrace is a **data-loop / evaluation harness for simulator-based trading card
+game agents** (target: the `cabt` / Kaggle Pokémon TCG environment). Its posture:
+produce data before optimizing agents; freeze baselines before claiming uplift;
+keep run artifacts immutable; tie every claim to evidence. Application code is
+**Python standard library only**; persistence is flat files (JSON/JSONL/CSV/MD),
+no database.
 
-## Architecture
-<!-- provenance: CODE-FACTUAL -->
-The architecture follows a three-zone model: System (`.claude/`) contains framework-managed scripts and skills, State (`grimoires/`, `.beads/`) holds project-specific artifacts and memory, and App (`src/`, `lib/`) contains developer-owned application code. The framework orchestrates 40 specialized skills through slash commands.
-```mermaid
-graph TD
-    agents[agents]
-    analysis[analysis]
-    config[config]
-    docs[docs]
-    eval[eval]
-    frozen[frozen]
-    grimoires[grimoires]
-    runs[runs]
-    Root[Project Root]
-    Root --> agents
-    Root --> analysis
-    Root --> config
-    Root --> docs
-    Root --> eval
-    Root --> frozen
-    Root --> grimoires
-    Root --> runs
+## Architecture map
+
+| Component | Role |
+|-----------|------|
+| `agents/runtime/` | Agents under test (`random_legal`, `scripted_baseline`); stdlib only |
+| `sim/` | cabt adapter, environment resolver, live probe — the only `cabt` / Competition-Data boundary |
+| `eval/` | Match + evaluation runners, schema validators, hygiene guard, canonical JSON |
+| `analysis/` | Offline reporting over sealed run dirs — never touches `cabt` |
+| `frozen/` | The **regime**: immutable decks/seeds/opponents/regimes/metrics — the test definition |
+| `runs/` | Generated, sealed run dirs — local / gitignored by default |
+| `docs/` | Durable cycle docs, operator contracts, `ledger.md`, `claim-ceiling.md` |
+| `tests/` | stdlib `unittest` + plain-assert smokes / lint |
+
+**Data flow (one evaluation):** `sim/probe.py` confirms the simulator is live →
+`eval/run_eval.py` drives the runtime agents through `sim/` for the frozen seed set
+→ a sealed run dir is written → `analysis/*` summarize it → only on explicit
+deliverable intent is a single row admitted to `docs/ledger.md`.
+
+## Hard boundaries
+
+- **Only `sim/` touches `cabt` / Competition Data.** It is the single blast radius.
+- **`analysis/` never touches `cabt`** — it reads sealed run dirs offline.
+- **Runtime agents stay stdlib-only** (`agents/runtime/`).
+- **Import direction is mechanically enforced** by `tests/test_import_direction.py`:
+  runtime → stdlib; sim → cabt; eval → sim + runtime + analysis; analysis → analysis only.
+- **`.claude/` is Loa development tooling (System Zone)** — it is *not* TurnTrace
+  functionality and must never be edited as part of TurnTrace work.
+
+## Claim ceiling
+
+- **Standing ceiling: Rung 2 — "beats random-legal,"** bounded strictly to the one
+  ledgered same-regime descriptive result (`scripted-v001` vs `random_legal-v001`
+  under `regime-v003`).
+- **Not claimed** (do not let any artifact imply otherwise):
+  - no Rung 3 claim;
+  - no calibration claim;
+  - no tournament-strength claim;
+  - no runtime-agent maturity claim;
+  - no FunSearch / RL / self-play / deck-optimization / MCTS / value-model claim;
+  - no broader Pokémon TCG strength claim.
+- The append-only ledger is the **evidence-admission authority**;
+  `docs/claim-ceiling.md` summarizes the current standing ceiling.
+
+## Evidence / data containment
+
+- **Raw generated runs stay local / gitignored by default.**
+- **Never in tracked docs:** raw traces, simulator logs, deck lists, card IDs/names,
+  Pokémon Elements, Competition Data, CSV/PDF dumps, `deck.csv`, or `cg/`.
+- **May appear in tracked docs:** sanitized summaries, hashes, ledger rows, claim
+  ceilings, and closeouts.
+- **Mechanical guards:** `eval/hygiene_check.py` (path guard, CC-1/CC-2),
+  `analysis/evidence_summary.py` (sanitized summaries + leak/empty-hash validator),
+  plus adapter-level digests so raw card data never reaches a tracked artifact.
+
+## Operator workflow
+
+1. Probe the simulator (`sim/probe.py`).
+2. Run an evaluation into a fresh sealed run dir (`eval/run_eval.py`).
+3. Analyze the sealed run dir (`analysis/*`).
+4. Only with explicit deliverable intent, admit **one** row to `docs/ledger.md`.
+5. At cycle close, update `docs/claim-ceiling.md` and write the cycle closeout.
+
+Cycles are durable. The ledger, claim-ceiling, and closeout are append-only
+governance artifacts — treat them as immutable history, not scratch space.
+
+## Key commands
+
 ```
-Directory structure:
-```
-./agents
-./agents/runtime
-./analysis
-./analysis/__pycache__
-./config
-./docs
-./docs/cycles
-./docs/operator
-./eval
-./eval/__pycache__
-./frozen
-./frozen/decks
-./frozen/metrics
-./frozen/opponents
-./frozen/regimes
-./frozen/seeds
-./grimoires
-./grimoires/loa
-./runs
-./runs/run-0001
-./runs/run-0002
-./runs/run-v002-b-1
-./runs/run-v002-b-10
-./runs/run-v002-b-11
-./runs/run-v002-b-12
-./runs/run-v002-b-13
-./runs/run-v002-b-14
-./runs/run-v002-b-15
-./runs/run-v002-b-16
-./runs/run-v002-b-17
+# both env vars required; both point at LOCAL, gitignored inputs
+TURNTRACE_CG_DIR=<dir with the cg package>   TURNTRACE_DECK_FILE=<local starter-deck csv>
+
+python sim/probe.py                                   # confirm simulator is live
+python eval/run_eval.py --run-id R --agent scripted_baseline [--deliverable]
+python eval/run_match.py --match-index N --run-id R --match-id M --out-dir D
+python eval/validate.py <run_dir>                     # schema-validate a run dir
+python eval/mirror_validate.py                        # candidate-vs-self smoke
+python eval/hygiene_check.py                          # Competition-Data staging guard
+python analysis/aggregate.py <run_dir>               # run dir → summary.csv
+python analysis/evidence_summary.py <run_dirs...>    # sanitized evidence summary
+python tests/test_import_direction.py                # AST lint: import direction
+python tests/test_evidence_summary.py                # standalone, no cabt
+python tests/test_smokes.py                          # needs cabt + deck file
 ```
 
-## Interfaces
-<!-- provenance: CODE-FACTUAL -->
-### Skill Commands
+## Key files
 
-#### Loa Core
+- `README.md` — project front door
+- `docs/ledger.md` — append-only evidence-admission ledger
+- `docs/claim-ceiling.md` — current standing claim ceiling
+- `docs/cycles/cycle-007/07-closeout.md` — Cycle-007 closeout of record
+- `docs/cycles/cycle-007/06a-sp6-promoted-summary.md` — promoted SP-6 summary
+- `analysis/evidence_summary.py` — sanitized summary + leak validator
+- `eval/hygiene_check.py` — Competition-Data path guard
+- `tests/test_import_direction.py` — import-direction invariant
+- `tests/test_evidence_summary.py` — evidence-summary tests
+- *(Loa lives under `.claude/` as development tooling only — System Zone, never edited.)*
 
-- **/auditing-security** — Paranoid Cypherpunk Auditor
-- **/autonomous-agent** — Autonomous Agent Orchestrator
-- **/bridgebuilder-review** — Bridgebuilder — Autonomous PR Review
-- **/browsing-constructs** — Unified construct discovery surface for the Constructs Network. This skill is a **thin API client** — all search intelligence, ranking, and composability analysis lives in the Constructs Network API.
-- **/bug-triaging** — Bug Triage Skill
-- **/butterfreezone-gen** — BUTTERFREEZONE Generation Skill
-- **/continuous-learning** — Continuous Learning Skill
-- **/deploying-infrastructure** — DevOps Crypto Architect Skill
-- **/designing-architecture** — Architecture Designer
-- **/discovering-requirements** — Discovering Requirements
-- **/enhancing-prompts** — Enhancing Prompts
-- **/eval-running** — Eval Running Skill
-- **/flatline-knowledge** — Provides optional NotebookLM integration for the Flatline Protocol, enabling external knowledge retrieval from curated AI-powered notebooks.
-- **/flatline-reviewer** — Flatline reviewer
-- **/flatline-scorer** — Flatline scorer
-- **/flatline-skeptic** — Flatline skeptic
-- **/gpt-reviewer** — Gpt reviewer
-- **/implementing-tasks** — Sprint Task Implementer
-- **/managing-credentials** — /loa-credentials — Credential Management
-- **/mounting-framework** — Mounting the Loa Framework
-- **/planning-sprints** — Sprint Planner
-- **/red-teaming** — Use the Flatline Protocol's red team mode to generate creative attack scenarios against design documents. Produces structured attack scenarios with consensus classification and architectural counter-designs.
-- **/reviewing-code** — Senior Tech Lead Reviewer
-- **/riding-codebase** — Riding Through the Codebase
-- **/rtfm-testing** — RTFM Testing Skill
-- **/run-bridge** — Run Bridge — Autonomous Excellence Loop
-- **/run-mode** — Run Mode Skill
-- **/simstim-workflow** — Simstim - HITL Accelerated Development Workflow
-- **/translating-for-executives** — DevRel Translator Skill (Enterprise-Grade v2.0)
-#### Project-Specific
+## Do / Do Not
 
-- **/cost-budget-enforcer** — Daily token-cap enforcement for autonomous Loa cycles. Replaces the
-- **/cross-repo-status-reader** — Read structured cross-repo state for ≤50 repos in parallel via `gh api`, with TTL cache + stale fallback, BLOCKER extraction from each repo's `grimoires/loa/NOTES.md` tail, and per-source error capture so one repo's failure does not abort the full read. The operator-visibility primitive for the Agent-Network Operator (P1).
-- **/flatline-attacker** — Flatline attacker
-- **/graduated-trust** — The L4 primitive maintains a per-(scope, capability, actor) trust ledger
-- **/hitl-jury-panel** — Replace `AskUserQuestion`-class decisions during operator absence with a panel of ≥3 deliberately-diverse panelists. Each panelist (model + persona) returns a view and reasoning; the skill logs all views BEFORE selection, then picks one binding view via a deterministic seed derived from `(decision_id, context_hash)`. Provides an autonomous adjudication primitive without compromising auditability.
-- **/loa-setup** — /loa setup — Onboarding Wizard
-- **/scheduled-cycle-template** — Compose `/schedule` (cron registration) with the existing autonomous-mode primitives into a generic 5-phase cycle: **read state → decide → dispatch → await → log**. Caller plugs five small phase scripts (the *DispatchContract*) into a YAML; the L3 lib runs them under a flock, records every phase to a hash-chained audit log, and (optionally) consults the L2 cost gate before letting any work begin.
-- **/soul-identity-doc** — L7 soul-identity-doc
-- **/spiraling** — Spiraling — /spiral Autopoietic Meta-Orchestrator
-- **/structured-handoff** — L6 structured-handoff
-- **/validating-construct-manifest** — Validate a construct pack directory before it lands in a registry or a local install. Surfaces:
+**Do**
+- keep runtime agents stdlib-only and the import direction intact;
+- keep Competition Data local; track only sanitized summaries, hashes, and ledger rows;
+- tie every claim to a ledgered, same-regime result;
+- treat ledger / claim-ceiling / closeout as append-only governance artifacts.
 
-## Module Map
-<!-- provenance: CODE-FACTUAL -->
-| Module | Files | Purpose | Documentation |
-|--------|-------|---------|---------------|
-| `agents/` | 6 | Agents | \u2014 |
-| `analysis/` | 15 | Analysis | \u2014 |
-| `config/` | 2 | Configuration files | \u2014 |
-| `docs/` | 74 | Documentation | \u2014 |
-| `eval/` | 14 | Eval | \u2014 |
-| `frozen/` | 11 | `frozen/` holds the **regime**: the immutable test definition that every run | [frozen/README.md](frozen/README.md) |
-| `grimoires/` | 133 | Loa state and memory files | \u2014 |
-| `runs/` | 80377 | Documentation | \u2014 |
-| `sim/` | 8 | > **Generated by `sim/probe.py`** — the first Sprint 00 executable. These | [sim/README.md](sim/README.md) |
-| `tests/` | 6 | Test suites | \u2014 |
+**Do Not**
+- put raw traces, deck lists, card data, `cg/`, or `deck.csv` into tracked files;
+- claim beyond Rung 2 (no calibration, tournament, RL / self-play / MCTS / value-model, or broader TCG strength);
+- edit `.claude/` (System Zone) or any Cycle-007 evidence / ledger / claim-ceiling / closeout artifact;
+- count a crash as a loss (FM-01), or overwrite a sealed run dir (the immutability guard refuses it).
 
-## Verification
-<!-- provenance: CODE-FACTUAL -->
-- Trust Level: **L2 — CI Verified**
-- 6 test files across 1 suite
-- CI/CD: GitHub Actions (1 workflows)
+## Carry-forward notes
 
-## Agents
-<!-- provenance: DERIVED -->
-The project defines 1 specialized agent persona.
-
-| Agent | Identity | Voice |
-|-------|----------|-------|
-| Bridgebuilder | You are the Bridgebuilder — a senior engineering mentor who has spent decades building systems at scale. | Your voice is warm, precise, and rich with analogy. |
-<!-- ground-truth-meta
-head_sha: e933e8a79dbb697d0a07785a662a2bfb582f02c1
-generated_at: 2026-06-20T19:40:43Z
-generator: butterfreezone-gen v1.0.0
-sections:
-  agent_context: 2adf001d497f00a5e61e85e474f99abd652d2265995440940156bd70798d7d45
-  capabilities: dcf17ee9d05cf81fb801c56be98cce78dbde4e22db42c8f760471c88b6bb256c
-  architecture: 69edc89f790c56c72968ceedbf91c0927cb10b549b0b1672d9fa09c02adb933b
-  interfaces: 57db3ebb284c4e2992c70515823667994c8e9c2d884ebe3e13f947f123b03f55
-  module_map: 87590c475a31ee9c60d2b54c00d36094e41539b20494978a5ddd03926030f75c
-  verification: 414a02dd5bfb74e75f19d216c4ea5a5ebe3d7c1837d6d0187350f99874c18fc0
-  agents: ca263d1e05fd123434a21ef574fc8d76b559d22060719640a1f060527ef6a0b6
--->
+- Moving the ceiling to Rung 3 requires fresh, pre-registered, same-regime evidence
+  admitted through the ledger — not a documentation edit.
+- This Butterfree Zone is a hand-maintained, sanitized context document. Update it on
+  cycle close; do not regenerate it from a generic codebase ride (that is what put
+  framework-centric noise here in the first place).
+- Provenance: corrective rewrite following commit `e2b0e40`, which had committed a
+  framework-centric BUTTERFREEZONE and generic ride/planning artifacts under
+  `grimoires/loa/`.

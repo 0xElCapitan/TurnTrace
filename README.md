@@ -106,14 +106,14 @@ python tests/test_smokes.py              # needs cabt + TURNTRACE_DECK_FILE
 
 The standing claim ceiling is **Rung 2 — "beats random-legal,"** earned in Cycle-007
 and recorded in `docs/claim-ceiling.md` and `docs/ledger.md`. The ledger row is a PASS
-for the `scripted_baseline` agent over the `random_legal` baseline, decided by a
-descriptive disjoint-bands rule across K=20 batches at n=500 under regime-v003.
+for `scripted-v001` over `random_legal-v001` under `regime-v003`, decided by a
+descriptive disjoint-bands rule across K=20 batches at n=500.
 
 That is the entire strength claim, and it is bounded by design: *beats a random-legal
 baseline, under this frozen regime.* TurnTrace does not claim that any agent is strong,
-competitive, calibrated, optimal, or complete. The append-only ledger is the only
-artifact permitted to carry a strength claim, and those words are gated out of every
-other artifact.
+competitive, calibrated, optimal, or complete. The append-only ledger is the
+evidence-admission authority; `docs/claim-ceiling.md` summarizes the current standing
+ceiling. The forbidden strength words remain gated out of other artifacts.
 
 ## For contributors
 
