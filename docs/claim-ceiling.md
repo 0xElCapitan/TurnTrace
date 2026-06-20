@@ -5,6 +5,42 @@
 > The **experiment ledger (`docs/ledger.md`) is the only ceiling-bearing artifact**;
 > this document states the standing posture that bounds every ledger row.
 
+## Standing claim ceiling
+
+**Current standing ceiling: Rung 2 — "beats random-legal."** Earned for **Cycle-007**, and
+only to this narrow, ledgered extent:
+
+- **Basis (same-regime, descriptive).** One ledgered result: the candidate `scripted-v001`
+  beats the `random_legal-v001` baseline under the frozen `regime-v003`, with the candidate's
+  per-batch win-rate band strictly above the baseline's by at least the pre-registered
+  descriptive margin across the pre-registered `K = 20` same-regime batches at `n = 500` (the
+  ratified descriptive disjoint-bands rule). It is a **same-regime delta only** — no
+  inferential statistic, and no forbidden agent word (below) applies even on this PASS.
+- **Authority.** The committed **Rung-2 ledger row** in `docs/ledger.md` (ledger commit
+  `399bbf01308dfa2fbd982b6f3b4f71730af53472`). `docs/ledger.md` stays the **only
+  ceiling-bearing artifact**; this document only states the standing posture and points at
+  that ledgered basis.
+- **Supporting chain.** S04 PASS verdict
+  (`docs/cycles/cycle-007/06-verdict-application.md` @ `a1466ba133e133bf02e0845c4639f1c0aedd5b8a`)
+  → SP-6 promoted sanitized summary
+  (`docs/cycles/cycle-007/06a-sp6-promoted-summary.md` @ `d445141b5f60c458a78f6e6891082ce70bf252f2`)
+  → the Rung-2 ledger row (ledger commit `399bbf01…`).
+
+**What Rung 2 does NOT grant** (the advance is bounded to the ledgered "beats random-legal"
+scope — nothing more):
+
+- **No Rung 3**, and no claim beyond "beats random-legal" under `regime-v003`.
+- **No calibration** improvement, no win-probability reliability, no value model.
+- **No tournament or meta strength**, no leaderboard standing, no absolute strength.
+- **No runtime-agent maturity** — `scripted-v001` is an existing frozen agent re-run to
+  generate evidence; no agent, heuristic, search, or learning system was built or tuned.
+- **No FunSearch / RL / self-play / deck-optimization outcome** of any kind.
+- **No general Pokémon TCG strength** beyond this ledgered Rung-2 scope.
+
+A FAIL or INCONCLUSIVE would have advanced nothing; this Rung-2 standing holds **only**
+because the pre-registered same-regime comparison PASSed and the separate ledgered terminal
+acts (SP-6 → Rung-2 row → this advance) were each taken under OD-C7-10.
+
 ## What the loop measures
 
 For a frozen regime (`regime-v001` = seed-set + opponent-pool + deck-pool +
@@ -20,7 +56,10 @@ metrics-spec), at a stated sample size `n`:
 ## What the loop does NOT measure (yet)
 
 - **Strength in any absolute sense.** A win rate vs `random_legal` (here, a mirror) is
-  **not** evidence of quality. Sprint 00 sits at **ladder Rung 1** (legal completion).
+  **not** evidence of quality. Sprint 00's `regime-v001` mirror is a **ladder Rung 1** result
+  (legal completion); the standing ceiling has since advanced to **Rung 2** (see *Standing
+  claim ceiling* above) — a same-regime descriptive "beats random-legal" result, still not
+  absolute strength.
 - **Skill against the real meta**, probability reliability, or per-decision quality.
 - **Generalization** beyond this frozen pool and deck. A rate is a statement about *this
   regime*.
