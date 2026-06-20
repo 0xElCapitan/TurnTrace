@@ -1,0 +1,10 @@
+{
+  "regime_id": "regime-v003",
+  "created_at": "2026-06-19",
+  "seed_set": "seed-set-v003",
+  "opponent_pool": "opponent-pool-v001",
+  "deck_pool": "deck-pool-v001",
+  "metrics_spec": "metrics-spec-v001",
+  "mode": "unseeded",
+  "notes": "New frozen regime for the Cycle-007 gated Rung-2 fresh same-regime attempt (docs/cycles/cycle-007/04-pre-registration.md §1, §6). The ONE new, never-observed regime under which both the baseline (random_legal-v001) and the candidate (scripted-v001) run for this attempt. ONLY the seed-set differs from the prior regimes: seed_set=seed-set-v003 (n=500, the disjoint index block 501..1000). opponent-pool-v001 / deck-pool-v001 / metrics-spec-v001 are REUSED by reference + content hash (the regime-v002 convention, decision OD-3) - every regime-v003 run's hashes.txt records their content hashes (eval/run_eval.py:241-243), so reuse is provable without re-minting. regime-v001 and regime-v002 and all their components remain byte-unchanged (NG7); a new seed-set is a NEW regime file, never an in-place edit of a prior regime (frozen/README.md; NFR-2/NFR-5). seed_controlled=false so mode=unseeded; reproducibility is distribution-stable + audit-trail, never byte-identical replay (NFR-3). NEVER compare a regime-v003 number to a regime-v001 or regime-v002 ledger row (NFR-5) - a result is meaningful only relative to its own regime_id; the validator and --promotion-check hard-refuse mixed regimes (exit 2). The claim ceiling stays Rung 1; the experiment ledger (docs/ledger.md) is the only ceiling-bearing artifact and this regime advances no ceiling on its own."
+}
