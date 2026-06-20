@@ -80,6 +80,17 @@ def validate_file_exit(summary_obj, tmp: Path, name: str = "v.json") -> int:
         return es.main(["--validate", str(p)])
 
 
+def promotion_check_file_exit(summary_obj, tmp: Path, name: str = "p.json") -> int:
+    """Write a summary to disk and run the --promotion-check gate; return exit.
+
+    Parallels validate_file_exit (:75-80) but drives the promotion gate, so block 14
+    keys on the same write-then-CLI shape the rest of the suite uses."""
+    p = tmp / name
+    p.write_text(json.dumps(summary_obj), encoding="utf-8")
+    with contextlib.redirect_stderr(io.StringIO()):
+        return es.main(["--promotion-check", str(p)])
+
+
 # --------------------------------------------------------------------------------------
 # The twelve checks.
 # --------------------------------------------------------------------------------------
@@ -367,6 +378,71 @@ def run_checks(tmp: Path) -> None:
     check("13l C4 no 'hashes.txt' read in evidence_summary.py source",
           "hashes.txt" not in src)
 
+    # --- 14. promotion-check (Cycle-006 OD-C6-2..6) — re-read + wholesale validate +
+    #         empty/absent-hashes hard-fail; parity-or-stricter with --validate. ---
+    # 14a — promotion-check passes a clean, non-empty-hashes good summary (exit 0).
+    check("14a good fixture carries a non-empty hashes stamp (precondition)",
+          bool(good.get("hashes")), str(good.get("hashes")))
+    check("14a promotion-check on a clean non-empty-hashes summary -> exit 0",
+          promotion_check_file_exit(good, tmp, "p14a.json") == 0)
+
+    # 14b — a structurally-valid but EMPTY-hashes summary hard-fails (exit 3; CF-1).
+    eh_p1 = make_run_dir(tmp, "run-p14b1", "regime-v002", "agentH", "agentH-v001",
+                         manifest_hash="")
+    eh_p2 = make_run_dir(tmp, "run-p14b2", "regime-v002", "agentH", "agentH-v001",
+                         manifest_hash="")
+    empty_hashes = es.build_summary([eh_p1, eh_p2])
+    check("14b empty-hashes summary assembled with hashes == {}",
+          empty_hashes["hashes"] == {}, str(empty_hashes["hashes"]))
+    check("14b promotion-check on an empty-hashes summary -> exit 3 (fail-closed)",
+          promotion_check_file_exit(empty_hashes, tmp, "p14b.json") == 3)
+
+    # 14b' — the SAME empty-hashes summary under --validate still passes (exit 0): the
+    #        empty-hashes precheck is promotion-only; validate_summary is unchanged.
+    check("14b' same empty-hashes summary under --validate still -> exit 0 (asymmetry)",
+          validate_file_exit(empty_hashes, tmp, "p14bprime.json") == 0)
+
+    # 14c — a forbidden field/value/word leak hard-fails (exit 3): proves the FULL
+    #       hardened validator re-runs. The leak summary still has non-empty hashes, so
+    #       exit 3 here is the validator's doing, not the empty-hashes precheck.
+    leak = copy.deepcopy(good)
+    leak["claim_ceiling"] = "p-value 0.03 indicates significance"   # inferential leak
+    check("14c leak fixture still has non-empty hashes (so exit 3 proves the validator)",
+          bool(leak.get("hashes")))
+    check("14c promotion-check on a forbidden-leak summary -> exit 3 (full validator re-run)",
+          promotion_check_file_exit(leak, tmp, "p14c.json") == 3)
+
+    # 14d — generate-mode empty-hashes still WARNS at exit 0 (re-assert 13j under block 14).
+    gd_err = io.StringIO()
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(gd_err):
+        rc_gd = es.main([str(eh_p1), str(eh_p2)])
+    gd_warn = gd_err.getvalue().lower()
+    check("14d generate-mode empty-hashes still WARNING at exit 0 (unchanged)",
+          rc_gd == 0 and "warning" in gd_warn and "empty hashes" in gd_warn, gd_warn)
+
+    # 14e — promotion-check writes nothing; docs/ledger.md byte-unchanged before/after.
+    ledger14 = REPO_ROOT / "docs" / "ledger.md"
+    p14e = tmp / "p14e.json"
+    p14e.write_text(json.dumps(good), encoding="utf-8")
+    before_14e = ledger14.read_bytes() if ledger14.exists() else None
+    files_before_14e = sorted(q.name for q in tmp.iterdir())
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        rc_14e = es.main(["--promotion-check", str(p14e)])
+    after_14e = ledger14.read_bytes() if ledger14.exists() else None
+    files_after_14e = sorted(q.name for q in tmp.iterdir())
+    check("14e promotion-check on the good summary -> exit 0 (control)", rc_14e == 0)
+    check("14e docs/ledger.md byte-unchanged before/after promotion-check",
+          before_14e == after_14e)
+    check("14e promotion-check creates no new file in tmp (writes nothing)",
+          files_before_14e == files_after_14e,
+          str(set(files_after_14e) ^ set(files_before_14e)))
+
+    # 14f — a mixed-regime summary -> exit 2 (single-regime guard inherited from --validate).
+    mixed14 = copy.deepcopy(good)
+    mixed14["agents"][0]["regime_id"] = "regime-v099"        # a 2nd regime appears
+    check("14f promotion-check on a mixed-regime summary -> exit 2 (single-regime guard)",
+          promotion_check_file_exit(mixed14, tmp, "p14f.json") == 2)
+
 
 _STDLIB = {
     "__future__", "argparse", "json", "re", "sys", "pathlib",
@@ -396,7 +472,7 @@ def main() -> int:
               file=sys.stderr)
         return 1
     print("\ntest_evidence_summary: OK — all 12 required checks + C1–C4 hardening "
-          "block 13 (13a–13l) pass", file=sys.stderr)
+          "block 13 (13a–13l) + promotion-check block 14 (14a–14f) pass", file=sys.stderr)
     return 0
 
 

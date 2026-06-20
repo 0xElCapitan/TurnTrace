@@ -40,10 +40,12 @@ anywhere; their absence is structural.
 enforced by ``tests/test_import_direction.py:32-37,69``). stdlib only (NFR-5).
 
 CLI:
-  generate:  python analysis/evidence_summary.py <run_dir> [<run_dir> ...] [--json] [--out <local-path>]
-  validate:  python analysis/evidence_summary.py --validate <summary.json>
+  generate:         python analysis/evidence_summary.py <run_dir> [<run_dir> ...] [--json] [--out <local-path>]
+  validate:         python analysis/evidence_summary.py --validate <summary.json>
+  promotion-check:  python analysis/evidence_summary.py --promotion-check <summary.json>
 Exit: 0 clean / valid · 1 input failure · 2 mixed-regime refusal ·
-      3 forbidden-field/value/word leak (fail-closed; never 0 on a leak).
+      3 forbidden-field/value/word leak OR (promotion-check only) empty/absent hashes
+        (fail-closed; never 0 on a leak).
 """
 
 from __future__ import annotations
@@ -506,6 +508,64 @@ def _run_validate(path_str: str) -> int:
     return 0
 
 
+def _run_promotion_check(path_str: str) -> int:
+    """Promotion gate (Cycle-006): re-read the named summary from disk, re-run the full
+    hardened validator wholesale (``validate_summary``), and additionally hard-fail an
+    empty/absent ``hashes`` integrity stamp.
+
+    By construction this is parity-or-stricter with ``--validate`` (NFR-1): it rejects
+    exactly what ``--validate`` rejects PLUS empty/absent ``hashes``. It writes nothing,
+    promotes nothing, and adds no read source (same read surface as ``_run_validate``;
+    no sidecar). The empty/absent-``hashes`` hard-fail rides the existing exit 3
+    (OD-C6-3); the 0/1/2/3 contract is unchanged."""
+    p = Path(path_str)
+    try:
+        summary = json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError as e:
+        print(f"evidence_summary: input failure — cannot read {path_str}: {e}", file=sys.stderr)
+        return 1
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"evidence_summary: input failure — {path_str} is not readable JSON: {e}", file=sys.stderr)
+        return 1
+
+    # (2) single-regime guard, identical to --validate (NFR-5) — exit 2 before any leak check.
+    regimes = _collect_regime_ids(summary)
+    if len(regimes) > 1:
+        print(f"evidence_summary: REFUSED — summary carries multiple regimes "
+              f"{sorted(regimes)}; an evidence summary is single-regime only (NFR-5).",
+              file=sys.stderr)
+        return 2
+
+    # (3) full hardened validator, re-run wholesale and UNCHANGED — any leak -> exit 3.
+    violations = validate_summary(summary)
+    if violations:
+        print(f"evidence_summary: LEAK — refusing {len(violations)} forbidden "
+              f"field/value/word(s) (fail-closed, exit 3):", file=sys.stderr)
+        for field, reason in violations:
+            print(f"  REJECT  {field}  — {reason}", file=sys.stderr)
+        return 3
+
+    # (4) promotion-only precheck (the single added rule; CF-1 / OD-C5-2 floor): after the
+    # validator is clean, a promotion candidate MUST carry a non-empty `hashes` stamp.
+    # `--validate` accepts a structurally-valid empty `hashes` at exit 0 (untouched here);
+    # promotion does not. Absent and empty both mean un-stamped provenance. The per-value
+    # digest shape of a non-empty map is already enforced by validate_summary above (via
+    # `_enforce_hashes_digest` and the top-level digest block), so this asserts
+    # non-emptiness only and rides exit 3 — no new exit code (OD-C6-3).
+    h = summary.get("hashes")
+    if not (isinstance(h, dict) and h):
+        print("evidence_summary: PROMOTION REFUSED — empty/absent hashes: provenance is "
+              "un-stamped; a promotion candidate must carry a manifest integrity stamp "
+              "(CF-1 / OD-C5-2 floor) (fail-closed, exit 3).", file=sys.stderr)
+        return 3
+
+    # (5) gate passed — write nothing, promote nothing.
+    print(f"evidence_summary: PROMOTION OK — {path_str} is schema-conforming, sanitized, "
+          f"single-regime, and carries a non-empty hashes integrity stamp (exit 0). "
+          f"Nothing written; nothing promoted.", file=sys.stderr)
+    return 0
+
+
 def main(argv=None) -> int:
     try:  # robust output regardless of console codepage (Windows cp1252)
         sys.stdout.reconfigure(encoding="utf-8")
@@ -519,6 +579,10 @@ def main(argv=None) -> int:
                     help="sealed run dirs to summarize (e.g. runs/run-v002-b-1 ...)")
     ap.add_argument("--validate", metavar="summary.json", default=None,
                     help="independent validator: re-read this summary file and validate it")
+    ap.add_argument("--promotion-check", metavar="summary.json", default=None,
+                    help="promotion gate: re-read this summary, re-run the full hardened "
+                         "validator, and additionally hard-fail empty/absent hashes; "
+                         "writes nothing, promotes nothing")
     ap.add_argument("--json", action="store_true",
                     help="emit JSON explicitly (generate-mode is JSON-first regardless)")
     ap.add_argument("--out", default=None,
@@ -526,7 +590,12 @@ def main(argv=None) -> int:
                          "stdout; never a tracked path (NG4)")
     args = ap.parse_args(argv)
 
-    # ---- validate mode ----
+    # ---- promotion-check / validate mode (re-read + re-validate a summary file) ----
+    # promotion-check is checked before --validate so the stricter gate wins if both are
+    # supplied (a single documented precedence choice; neither existing mode's behaviour
+    # changes).
+    if args.promotion_check is not None:
+        return _run_promotion_check(args.promotion_check)
     if args.validate is not None:
         return _run_validate(args.validate)
 
