@@ -1,0 +1,10 @@
+{
+  "run_id": "run-syn-b-01",
+  "regime_id": "regime-syn-b",
+  "agent_id": "scripted-syn",
+  "agent_version": "scripted-syn-v0",
+  "opponent_id": "opp-syn",
+  "mode": "unseeded",
+  "expected_match_ids": ["M0001"],
+  "created_at": "2026-01-01T00:00:00Z"
+}

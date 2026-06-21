@@ -1,0 +1,2 @@
+{"record_type": "decision", "run_id": "run-syn-a-01", "match_id": "M0001", "regime_id": "regime-syn-a", "decision_index": 0, "turn": 1, "player": "agent", "public_state_summary": {"active_present": {"p0": true, "p1": true}, "bench_count": {"p0": 2, "p1": 2}, "prize_count": {"p0": 6, "p1": 6}}, "decision_latency_ms": 11}
+{"record_type": "terminal", "run_id": "run-syn-a-01", "match_id": "M0001", "regime_id": "regime-syn-a", "decision_index": 1, "result": "win", "ending_cause": "prize-out", "turns": 5, "final_prize_counts": [0, 5], "last_decision_index": 0}

@@ -1,0 +1,16 @@
+{
+  "run_id": "run-syn-b-01",
+  "match_id": "M0001",
+  "regime_id": "regime-syn-b",
+  "agent_id": "scripted-syn",
+  "agent_version": "scripted-syn-v0",
+  "opponent_id": "opp-syn",
+  "result": "loss",
+  "ending_cause": "no-active",
+  "turns": 6,
+  "timeout": null,
+  "invalid_action_count": 0,
+  "invalid_action_detectable": true,
+  "wall_clock_ms": 130,
+  "error": null
+}

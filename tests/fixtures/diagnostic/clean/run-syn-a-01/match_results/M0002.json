@@ -1,0 +1,16 @@
+{
+  "run_id": "run-syn-a-01",
+  "match_id": "M0002",
+  "regime_id": "regime-syn-a",
+  "agent_id": "scripted-syn",
+  "agent_version": "scripted-syn-v0",
+  "opponent_id": "opp-syn",
+  "result": "loss",
+  "ending_cause": "deck-out",
+  "turns": 8,
+  "timeout": null,
+  "invalid_action_count": 1,
+  "invalid_action_detectable": true,
+  "wall_clock_ms": 180,
+  "error": null
+}
