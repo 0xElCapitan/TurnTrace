@@ -1,0 +1,67 @@
+name: Governance Gate
+
+# =============================================================================
+# Cycle-009 SP-B — advisory, path-scoped governance gate.
+#
+# Runs `analysis/governance_gate.py --mode ci`: the offline, read-only,
+# stdlib-only orchestrator that invokes TurnTrace's existing validators +
+# stdlib test modules as ONE check and aggregates their 0/1/2/3 exits as max
+# severity. The `--mode ci` subset is simulator-free (no local-only
+# prerequisites), so it runs with no extra data on the runner.
+#
+# Posture (binding): a green run is WELL-FORMEDNESS ONLY, NEVER AUTHORIZATION.
+# It blesses no rung and advances no ceiling; `docs/ledger.md` remains the only
+# ceiling-bearing artifact. The gate writes nothing.
+#
+# Advisory: this is a normal Actions check, intentionally NOT added to branch
+# protection / required-checks. Promotion to a required check is a later
+# operator act in repo settings, outside this workflow.
+#
+# Separate from `post-merge.yml` (which classifies / semver / releases on push
+# to main); this file does not modify or interact with that pipeline.
+# =============================================================================
+
+on:
+  pull_request:
+    paths:
+      - 'analysis/**'
+      - 'tests/**'
+      - 'docs/ledger.md'
+      - 'docs/claim-ceiling.md'
+      - 'docs/cycles/**'
+      - '.github/workflows/governance-gate.yml'
+  push:
+    paths:
+      - 'analysis/**'
+      - 'tests/**'
+      - 'docs/ledger.md'
+      - 'docs/claim-ceiling.md'
+      - 'docs/cycles/**'
+      - '.github/workflows/governance-gate.yml'
+
+# Least privilege: the gate is read-only and posts nothing. Read access is all
+# the checkout needs; the job cannot mutate the repository.
+permissions:
+  contents: read
+
+jobs:
+  governance-gate:
+    name: Governance Gate (mode=ci)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # Full history so the ledger validator's committed baseline
+          # (`git show HEAD:docs/ledger.md`) is reachable and the gate does not
+          # fail closed on a legitimate run (OD-C9-2).
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      # stdlib-only: no `pip install` of runtime dependencies (NFR-1).
+      - name: Run governance gate (simulator-free CI subset)
+        run: python analysis/governance_gate.py --mode ci
